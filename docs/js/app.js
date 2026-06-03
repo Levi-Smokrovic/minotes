@@ -773,34 +773,46 @@ connectScannedBtn.addEventListener('click', () => {
 
 // ─── Test Notification ───────────────────────────────────────────────
 testNotifBtn.addEventListener('click', async () => {
+  console.log('[NOTIF] Test notification button clicked');
   // Ensure permission
-  if (!('Notification' in window)) { toast('Notifications not supported'); return; }
-  if (Notification.permission === 'denied') { toast('Notifications are blocked — enable in browser settings'); return; }
+  if (!('Notification' in window)) { console.warn('[NOTIF] Notifications not supported in this browser'); toast('Notifications not supported'); return; }
+  console.log('[NOTIF] Notification.permission:', Notification.permission);
+  if (Notification.permission === 'denied') { console.warn('[NOTIF] Notifications are denied'); toast('Notifications are blocked — enable in browser settings'); return; }
   if (Notification.permission === 'default') {
+    console.log('[NOTIF] Requesting permission…');
     const result = await Notification.requestPermission();
+    console.log('[NOTIF] Permission result:', result);
     if (result !== 'granted') { toast('Permission denied'); return; }
   }
   toast('Test notification in 5 seconds…');
+  console.log('[NOTIF] Will fire notification in 5s');
 
   setTimeout(async () => {
+    console.log('[NOTIF] Firing notification now');
     try {
       // Try SW registration first (most reliable)
+      console.log('[NOTIF] Trying SW showNotification…');
       const reg = await navigator.serviceWorker.ready;
+      console.log('[NOTIF] SW ready, scope:', reg.scope);
       await reg.showNotification('minotes — Test', {
         body: 'This is a test notification from minotes',
         icon: './icon-192.svg',
         tag: 'minotes-test-' + Date.now(),
       });
+      console.log('[NOTIF] SW showNotification succeeded');
     } catch (e) {
+      console.warn('[NOTIF] SW showNotification failed:', e.message, e);
       // Fallback: direct notification
       try {
-        new Notification('minotes — Test', {
+        console.log('[NOTIF] Falling back to new Notification()');
+        const n = new Notification('minotes — Test', {
           body: 'This is a test notification from minotes',
           icon: './icon-192.svg',
         });
+        console.log('[NOTIF] new Notification() returned:', n);
       } catch (e2) {
+        console.error('[NOTIF] Both notification methods failed', e2);
         toast('Notification failed — check browser settings');
-        console.warn('Both notification methods failed', e, e2);
       }
     }
   }, 5000);

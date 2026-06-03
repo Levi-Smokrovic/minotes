@@ -313,6 +313,8 @@ async function pollReminders() {
     const events = await api('GET', '/api/reminders/poll');
     if (!events.length) return;
 
+    console.log('[REMINDER] Got events:', JSON.stringify(events));
+
     events.forEach(ev => {
       toast('Reminder: ' + ev.title);
 
@@ -320,13 +322,31 @@ async function pollReminders() {
 
       // Desktop notification via SW registration (most reliable)
       if ('Notification' in window && Notification.permission === 'granted') {
+        console.log('[REMINDER] Sending desktop notification for:', ev.title);
         navigator.serviceWorker.ready.then(reg => {
           reg.showNotification('minotes — Reminder', {
             body,
             icon: '/static/icon-192.svg',
             tag: 'reminder-' + ev.id,
+          }).then(() => {
+            console.log('[REMINDER] SW notification sent OK');
+          }).catch(e => {
+            console.warn('[REMINDER] SW notif failed, trying direct:', e.message);
+            try {
+              new Notification('minotes — Reminder', { body, icon: '/static/icon-192.svg' });
+              console.log('[REMINDER] Direct notification sent OK');
+            } catch (e2) {
+              console.error('[REMINDER] Direct notification also failed:', e2);
+            }
           });
-        }).catch(e => console.warn('SW notif failed', e));
+        }).catch(e => {
+          console.warn('[REMINDER] SW not ready, direct:', e.message);
+          try {
+            new Notification('minotes — Reminder', { body, icon: '/static/icon-192.svg' });
+          } catch (_) {}
+        });
+      } else {
+        console.log('[REMINDER] No Notification permission for reminder popup:', Notification.permission);
       }
     });
     updateReminderPanel();
@@ -476,6 +496,7 @@ function updateQR(text) {
 }
 
 function setSyncStatus(state, msg) {
+  console.log('[SYNC] Status:', state, '-', msg);
   const dot = syncStatus.querySelector('.sync-status-dot');
   dot.className = 'sync-status-dot ' + state;
   syncStatus.querySelector('span:last-child').textContent = msg;
@@ -801,34 +822,46 @@ connectScannedBtn.addEventListener('click', () => {
 
 // ─── Test Notification ───────────────────────────────────────────────
 testNotifBtn.addEventListener('click', async () => {
+  console.log('[NOTIF] Test notification button clicked');
   // Ensure permission
-  if (!('Notification' in window)) { toast('Notifications not supported'); return; }
-  if (Notification.permission === 'denied') { toast('Notifications are blocked — enable in browser settings'); return; }
+  if (!('Notification' in window)) { console.warn('[NOTIF] Notifications not supported in this browser'); toast('Notifications not supported'); return; }
+  console.log('[NOTIF] Notification.permission:', Notification.permission);
+  if (Notification.permission === 'denied') { console.warn('[NOTIF] Notifications are denied'); toast('Notifications are blocked — enable in browser settings'); return; }
   if (Notification.permission === 'default') {
+    console.log('[NOTIF] Requesting permission…');
     const result = await Notification.requestPermission();
+    console.log('[NOTIF] Permission result:', result);
     if (result !== 'granted') { toast('Permission denied'); return; }
   }
   toast('Test notification in 5 seconds…');
+  console.log('[NOTIF] Will fire notification in 5s');
 
   setTimeout(async () => {
+    console.log('[NOTIF] Firing notification now');
     try {
       // Try SW registration first (most reliable)
+      console.log('[NOTIF] Trying SW showNotification…');
       const reg = await navigator.serviceWorker.ready;
+      console.log('[NOTIF] SW ready, scope:', reg.scope);
       await reg.showNotification('minotes — Test', {
         body: 'This is a test notification from minotes',
         icon: '/static/icon-192.svg',
         tag: 'minotes-test-' + Date.now(),
       });
+      console.log('[NOTIF] SW showNotification succeeded');
     } catch (e) {
+      console.warn('[NOTIF] SW showNotification failed:', e.message, e);
       // Fallback: direct notification
       try {
-        new Notification('minotes — Test', {
+        console.log('[NOTIF] Falling back to new Notification()');
+        const n = new Notification('minotes — Test', {
           body: 'This is a test notification from minotes',
           icon: '/static/icon-192.svg',
         });
+        console.log('[NOTIF] new Notification() returned:', n);
       } catch (e2) {
+        console.error('[NOTIF] Both notification methods failed', e2);
         toast('Notification failed — check browser settings');
-        console.warn('Both notification methods failed', e, e2);
       }
     }
   }, 5000);
@@ -836,12 +869,21 @@ testNotifBtn.addEventListener('click', async () => {
 
 // ─── Service Worker & Push ───────────────────────────────────────────
 async function registerSW() {
-  if (!('serviceWorker' in navigator)) return;
+  if (!('serviceWorker' in navigator)) { console.warn('[SW] Service workers not supported'); return; }
   try {
     const reg = await navigator.serviceWorker.register('/sw.js');
-    console.log('SW registered', reg.scope);
+    console.log('[SW] Registered successfully, scope:', reg.scope);
+
+    // Check if there's already a subscription
+    const sub = await reg.pushManager.getSubscription();
+    console.log('[SW] Existing push subscription:', sub);
+
+    // Listen for updates
+    reg.addEventListener('updatefound', () => {
+      console.log('[SW] Update found, new SW installing');
+    });
   } catch (e) {
-    console.warn('SW registration failed', e);
+    console.warn('[SW] Registration failed:', e.message, e);
   }
 }
 
@@ -1080,9 +1122,12 @@ async function toggleDone(id) {
   const note = notes.find(n => n.id === id);
   if (!note) return;
   const newDone = note.done ? 0 : 1;
+  console.log('[TODO] Toggle note', id, 'done ->', newDone, 'title:', note.title);
   await api('PUT', `/api/notes/${id}`, { done: newDone });
   await loadNotes();
-  toast(newDone ? 'Marked as done' : 'Reopened');
+  const msg = newDone ? 'Marked as done' : 'Reopened';
+  toast(msg);
+  console.log('[TODO]', msg, '- note:', note.title);
   broadcastSync();
 }
 

@@ -1004,7 +1004,20 @@ input[type="datetime-local"]::-webkit-datetime-edit-minute-field:focus {
 }
 
 [data-theme="dark"] .note-card.done {
-  opacity: .4;
+  opacity: .75;
+}
+[data-theme="dark"] .note-card.done .note-card-header h3 {
+  color: var(--text);
+  opacity: .7;
+}
+[data-theme="dark"] .note-card.done .note-card-content {
+  color: var(--text);
+  opacity: .6;
+}
+
+/* Darken light custom bg colors on note cards in dark mode */
+[data-theme="dark"] .note-card[style*="background"] {
+  filter: brightness(.55) saturate(.6);
 }
 
 [data-theme="dark"] .sync-dot.online { background: #4ade80; }
@@ -1076,8 +1089,9 @@ input[type="datetime-local"]::-webkit-datetime-edit-minute-field:focus {
 }
 
 [data-theme="dark"] .toast {
-  background: #333;
-  color: #e5e5e5;
+  background: #444;
+  color: #fff;
+  border: 1px solid #555;
 }
 
 [data-theme="dark"] .intro-dismiss {
@@ -1106,6 +1120,23 @@ input[type="datetime-local"]::-webkit-datetime-edit-minute-field:focus {
 }
 [data-theme="dark"] .btn-primary:hover {
   background: #000;
+}
+
+[data-theme="dark"] .filter-btn.active {
+  background: var(--accent);
+  color: var(--bg);
+  border-color: var(--accent);
+}
+
+[data-theme="dark"] .preset-btn.active,
+[data-theme="dark"] .preset-btn:hover {
+  background: var(--accent);
+  color: var(--bg);
+  border-color: var(--accent);
+}
+
+[data-theme="dark"] .sync-status {
+  color: var(--text);
 }
 
 [data-theme="dark"] .note-card.done .note-card-done-badge {
