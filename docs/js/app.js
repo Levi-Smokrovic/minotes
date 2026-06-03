@@ -315,7 +315,7 @@ function deleteNoteFn() {
   if (!editingId) return;
   if (!confirm('Delete this note?')) return;
   deleteNote(editingId);
-  toast('Note deleted 🗑️');
+  toast('Note deleted');
   closeModalFn();
   broadcastSync();
 }
@@ -851,7 +851,7 @@ logo.addEventListener('click', () => {
   if (logoClickCount >= 5) {
     logoClickCount = 0;
     adminSection.style.display = 'block';
-    toast('🔐 Admin panel unlocked');
+    toast('Admin panel unlocked');
     // Open settings to show it
     settingsPanel.classList.add('open');
     overlay.classList.add('open');
@@ -860,30 +860,30 @@ logo.addEventListener('click', () => {
 
 // Premade sample notes
 const SAMPLE_NOTES = [
-  { title: 'Welcome to minotes! 👋', content: 'This is a sample note. Start typing to replace it, or tap and create a new one.\n\n• Click + New Note to create\n• Double-click a note to toggle Done\n• Use reminders via the ⏰ button', color: '#fef3c7', done: 0 },
+  { title: 'Welcome to minotes!', content: 'This is a sample note. Start typing to replace it, or tap and create a new one.\n\n• Click + New Note to create\n• Double-click a note to toggle Done\n• Use reminders via the reminder button', color: '#fef3c7', done: 0 },
   { title: 'Meeting Notes', content: 'Q2 Planning:\n- Review roadmap\n- Assign sprint goals\n- Set OKRs for next quarter\n- Schedule follow-up', color: '#dbeafe', done: 0 },
-  { title: 'Shopping List', content: '• 🥑 Avocados\n• 🍞 Bread\n• 🥛 Almond milk\n• 🥦 Broccoli\n• 🍫 Dark chocolate', color: '#dcfce7', done: 0 },
+  { title: 'Shopping List', content: '• Avocados\n• Bread\n• Almond milk\n• Broccoli\n• Dark chocolate', color: '#dcfce7', done: 0 },
   { title: 'Idea: Color Picker', content: 'Would be nice to have a quick color palette picker for notes. Could use it for categorizing projects and personal stuff.', color: '#fce7f3', done: 0, pinned: 1 },
   { title: 'Done Example', content: 'This note is already done. Double-click any note to toggle its done status.', color: '#f5f5f4', done: 1 },
 ];
 
 const DEMO_NOTES = [
-  { title: '🚀 Project Alpha', content: 'Status: In Progress\n\nFrontend: 80% complete\nBackend: 45% complete\nDesign: Review pending', color: '#dbeafe', done: 0, pinned: 1 },
-  { title: '✅ Homepage redesign', content: 'New hero section, updated color palette, responsive navigation', color: '#dcfce7', done: 1 },
-  { title: '✅ API integration', content: 'REST endpoints for user auth and data sync', color: '#dcfce7', done: 1 },
-  { title: '🔄 Database migration', content: 'Moving from SQLite to PostgreSQL. Migration script ready for review.', color: '#fef3c7', done: 0 },
-  { title: '🐛 Bug: Login redirect', content: 'After OAuth login, users are redirected to /404 instead of /dashboard. Need to fix the callback handler.', color: '#fce7f3', done: 0, pinned: 1 },
-  { title: '📝 Sprint Review', content: 'Team: 8/10 stories completed\nVelocity: 42 points\nBlockers: None\nNext: Retrospective Friday', color: '#fef3c7', done: 0 },
-  { title: '✅ Unit tests for auth', content: 'Coverage at 92% — all critical paths tested', color: '#dcfce7', done: 1 },
-  { title: '✅ Dark mode support', content: 'Implemented CSS custom properties, toggle in settings', color: '#dcfce7', done: 1 },
-  { title: '📅 Deployment v2.1', content: 'Target: Next Tuesday\nIncludes: Bug fixes + performance improvements\nRollback plan: Tagged in CI', color: '#f5f5f4', done: 0 },
+  { title: 'Project Alpha', content: 'Status: In Progress\n\nFrontend: 80% complete\nBackend: 45% complete\nDesign: Review pending', color: '#dbeafe', done: 0, pinned: 1 },
+  { title: 'Homepage redesign', content: 'New hero section, updated color palette, responsive navigation', color: '#dcfce7', done: 1 },
+  { title: 'API integration', content: 'REST endpoints for user auth and data sync', color: '#dcfce7', done: 1 },
+  { title: 'Database migration', content: 'Moving from SQLite to PostgreSQL. Migration script ready for review.', color: '#fef3c7', done: 0 },
+  { title: 'Bug: Login redirect', content: 'After OAuth login, users are redirected to /404 instead of /dashboard. Need to fix the callback handler.', color: '#fce7f3', done: 0, pinned: 1 },
+  { title: 'Sprint Review', content: 'Team: 8/10 stories completed\nVelocity: 42 points\nBlockers: None\nNext: Retrospective Friday', color: '#fef3c7', done: 0 },
+  { title: 'Unit tests for auth', content: 'Coverage at 92% — all critical paths tested', color: '#dcfce7', done: 1 },
+  { title: 'Dark mode support', content: 'Implemented CSS custom properties, toggle in settings', color: '#dcfce7', done: 1 },
+  { title: 'Deployment v2.1', content: 'Target: Next Tuesday\nIncludes: Bug fixes + performance improvements\nRollback plan: Tagged in CI', color: '#f5f5f4', done: 0 },
 ];
 
 function addPremadeNotes(list) {
   for (const n of list) {
     createNote(n.title, n.content, n.color, n.remind_at || null, n.done || 0);
   }
-  toast(`Loaded ${list.length} notes ✅`);
+  toast(`Loaded ${list.length} notes`);
   if (settingsPanel.classList.contains('open')) {
     settingsPanel.classList.remove('open');
     overlay.classList.remove('open');
@@ -899,7 +899,7 @@ clearAllNotesBtn.addEventListener('click', () => {
   notes = [];
   saveNotesToStorage();
   loadNotes();
-  toast('All notes cleared 🗑️');
+  toast('All notes cleared');
   if (settingsPanel.classList.contains('open')) {
     settingsPanel.classList.remove('open');
     overlay.classList.remove('open');
@@ -917,6 +917,25 @@ function initIntroSlideshow() {
     introSlideshow.classList.add('hidden');
     return;
   }
+  // Dot clicks
+  document.querySelectorAll('.slide-dot').forEach(dot => {
+    dot.addEventListener('click', () => {
+      clearInterval(slideInterval);
+      goToSlide(parseInt(dot.dataset.index));
+      startSlideTimer();
+    });
+  });
+  // Nav arrows
+  $('#slideNext').addEventListener('click', () => {
+    clearInterval(slideInterval);
+    nextSlide();
+    startSlideTimer();
+  });
+  $('#slidePrev').addEventListener('click', () => {
+    clearInterval(slideInterval);
+    prevSlide();
+    startSlideTimer();
+  });
   startSlideTimer();
 }
 
@@ -941,27 +960,6 @@ function startSlideTimer() {
   slideInterval = setInterval(nextSlide, SLIDE_DELAY);
 }
 
-// Dot clicks
-document.querySelectorAll('.slide-dot').forEach(dot => {
-  dot.addEventListener('click', () => {
-    clearInterval(slideInterval);
-    goToSlide(parseInt(dot.dataset.index));
-    startSlideTimer();
-  });
-});
-
-// Nav arrows
-$('#slideNext').addEventListener('click', () => {
-  clearInterval(slideInterval);
-  nextSlide();
-  startSlideTimer();
-});
-$('#slidePrev').addEventListener('click', () => {
-  clearInterval(slideInterval);
-  prevSlide();
-  startSlideTimer();
-});
-
 introDismiss.addEventListener('click', () => {
   introSlideshow.classList.add('hidden');
   localStorage.setItem('minotes_introDismissed', 'true');
@@ -980,7 +978,7 @@ function toggleDone(id) {
   if (!note) return;
   const newDone = note.done ? 0 : 1;
   updateNote(id, { done: newDone });
-  toast(newDone ? 'Marked as done ✅' : 'Reopened ↩️');
+  toast(newDone ? 'Marked as done' : 'Reopened');
   broadcastSync();
 }
 
