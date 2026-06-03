@@ -1016,13 +1016,20 @@ input[type="datetime-local"]::-webkit-datetime-edit-minute-field:focus {
   opacity: .6;
 }
 
-/* Strip custom bg colors on note cards in dark mode — use dark surface for readability */
-[data-theme="dark"] .note-card[style*="background"] {
-  background: var(--surface) !important;
-}
-/* Also strip custom bg from modal editor in dark mode */
+/* Dark overlay on custom bg colors in dark mode — keeps the hue, readable text */
+[data-theme="dark"] .note-card[style*="background"],
 [data-theme="dark"] .modal-content[style*="background"] {
-  background: var(--surface) !important;
+  isolation: isolate;
+}
+[data-theme="dark"] .note-card[style*="background"]::before,
+[data-theme="dark"] .modal-content[style*="background"]::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: rgba(0,0,0,.55);
+  z-index: -1;
+  pointer-events: none;
 }
 
 [data-theme="dark"] .sync-dot.online { background: #4ade80; }
