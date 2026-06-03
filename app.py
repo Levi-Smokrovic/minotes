@@ -28,7 +28,7 @@ SMTP_FROM = os.environ.get("MINOTES_SMTP_FROM", SMTP_USER)
 EMAIL_ENABLED = bool(SMTP_HOST and SMTP_USER and SMTP_PASS)
 
 app = Flask(__name__, static_folder="static", template_folder="templates")
-CORS(app)
+CORS(app, resources={r"/api/*": {"origins": ["http://localhost:8080", "http://127.0.0.1:8080", "https://levi-smokrovic.github.io"]}})
 
 # ---------------------------------------------------------------------------
 # Database helpers
@@ -69,17 +69,21 @@ with get_db() as db:
 # ---------------------------------------------------------------------------
 _reminder_events = []  # list of dicts kept in memory for fast lookup
 
+def _sanitize_header(val):
+    """Remove control chars to prevent header injection."""
+    return ''.join(c for c in (val or '') if c not in '\r\n\t').strip()[:200]
+
 def send_email_reminder(to_addr, title, content):
     """Send an email reminder. Returns True if sent, False if not configured."""
     if not EMAIL_ENABLED or not to_addr:
         return False
     try:
         msg = EmailMessage()
-        msg["Subject"] = f"Reminder: {title} — minotes"
+        msg["Subject"] = f"Reminder: {_sanitize_header(title)} — minotes"
         msg["From"] = SMTP_FROM
         msg["To"] = to_addr
         body = f"Reminder from minotes\n\n"
-        body += f"Title: {title}\n"
+        body += f"Title: {_sanitize_header(title)}\n"
         if content:
             body += f"Note: {content[:500]}\n"
         body += f"\n— minotes"
@@ -102,7 +106,7 @@ def _reminder_loop():
             with get_db() as db:
                 rows = db.execute(
                     "SELECT id, title, content, remind_at FROM notes "
-                    "WHERE remind_at IS NOT NULL AND remind_at <= datetime('now','localtime')"
+                    "WHERE remind_at IS NOT NULL AND remind_at <= datetime('now')"
                 ).fetchall()
             for r in rows:
                 # mark as fired (clear remind_at)

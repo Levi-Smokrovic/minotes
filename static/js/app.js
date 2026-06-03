@@ -162,7 +162,8 @@ function renderNotes() {
   const html = filtered.map(n => {
     const isDone = n.done;
     const hasReminder = n.remind_at;
-    const bg = n.color && n.color !== '#ffffff' ? `style="background:${n.color}"` : '';
+    const isValidHex = (c) => /^#[0-9a-fA-F]{6}$/.test(c);
+    const bg = n.color && n.color !== '#ffffff' && isValidHex(n.color) ? `style="background:${n.color}"` : '';
     const doneClass = isDone ? 'done' : '';
     const contentPreview = (n.content || '').slice(0, 150);
     const reminderLabel = hasReminder
@@ -613,9 +614,18 @@ async function initPeer() {
   peer.on('error', (err) => {
     if (err.type === 'unavailable-id') {
       peer.destroy();
-      peer = new Peer(peerId + '-' + Math.random().toString(36).slice(2, 6), { debug: 0 });
+      peer = null;
+      // Retry with random suffix — all handlers will be re-attached
+      const suffix = Math.random().toString(36).slice(2, 6);
+      const newId = peerId + '-' + suffix;
+      console.log('[SYNC] Peer ID collision, retrying with:', newId);
+      peer = new Peer(newId, { debug: 0 });
       peer.on('open', () => setSyncStatus('online', 'Connected — ready for sync'));
       peer.on('connection', handleIncomingConnection);
+      peer.on('error', (e) => {
+        setSyncStatus('offline', 'Sync unavailable (offline?)');
+        console.warn('PeerJS error:', e.type);
+      });
       return;
     }
     setSyncStatus('offline', 'Sync unavailable (offline?)');
@@ -690,7 +700,7 @@ async function handleSyncData(data, conn) {
           await api('POST', '/api/notes', {
             title: remoteNote.title || 'Untitled',
             content: remoteNote.content || '',
-            color: remoteNote.color || '#ffffff',
+            color: /^#[0-9a-fA-F]{6}$/.test(remoteNote.color) ? remoteNote.color : '#ffffff',
             remind_at: remoteNote.remind_at || null,
             done: remoteNote.done || 0,
           });
@@ -731,6 +741,7 @@ regeneratePhraseBtn.addEventListener('click', () => {
   const newPhrase = generatePhrase();
   myPhrase = newPhrase;
   localStorage.setItem('minotes_phrase', myPhrase);
+  localStorage.removeItem('minotes_peers');
   myPhraseInput.value = myPhrase;
   updateQR(myPhrase);
   initPeer();
@@ -800,8 +811,14 @@ function stopScanner() {
 }
 
 function onScanSuccess(decodedText) {
-  const phrase = decodedText.trim();
+  const phrase = decodedText.trim().toLowerCase();
   if (!phrase) return;
+  // Validate phrase format (should match word-word-####)
+  if (!/^[a-z]+-[a-z]+-\d{4}$/.test(phrase)) {
+    toast('Invalid sync phrase — scan a valid minotes QR code');
+    stopScanner();
+    return;
+  }
   stopScanner();
   scannedPhrase.textContent = phrase;
   scannerResult.style.display = 'flex';
@@ -900,6 +917,7 @@ async function requestNotifPermission() {
 function showNotifPromptIfNeeded() {
   if (!('Notification' in window)) return;
   if (Notification.permission !== 'default') return;
+  if (localStorage.getItem('minotes_notif_dismissed')) return;
   notifPrompt.classList.add('visible');
 }
 
@@ -907,9 +925,11 @@ function showNotifPromptIfNeeded() {
 notifEnableBtn.addEventListener('click', () => {
   requestNotifPermission();
   notifPrompt.classList.remove('visible');
+  localStorage.removeItem('minotes_notif_dismissed');
 });
 notifLaterBtn.addEventListener('click', () => {
   notifPrompt.classList.remove('visible');
+  localStorage.setItem('minotes_notif_dismissed', 'true');
 });
 
 // ─── Settings Panel ───────────────────────────────────────────────────
@@ -928,6 +948,10 @@ function initDarkMode() {
   if (saved === 'true') {
     document.documentElement.setAttribute('data-theme', 'dark');
     darkModeToggle.checked = true;
+  } else if (saved === null && window.matchMedia('(prefers-color-scheme: dark)').matches) {
+    document.documentElement.setAttribute('data-theme', 'dark');
+    darkModeToggle.checked = true;
+    localStorage.setItem('minotes_darkMode', 'true');
   }
 }
 
@@ -970,7 +994,7 @@ importNotesBtn.addEventListener('click', () => {
           if (!n.title) continue;
           await api('POST', '/api/notes', {
             title: n.title, content: n.content || '',
-            color: n.color || '#ffffff',
+            color: /^#[0-9a-fA-F]{6}$/.test(n.color) ? n.color : '#ffffff',
             remind_at: n.remind_at || null,
             done: n.done || 0,
           });
@@ -1181,12 +1205,16 @@ async function init() {
   // Init P2P sync
   getOrCreatePhrase();
   try {
-    await initPeer();
+    const tryPeer = () => {
+      if (typeof Peer !== 'undefined') initPeer();
+      else setTimeout(tryPeer, 1000);
+    };
+    tryPeer();
   } catch (e) {
     console.warn('PeerJS init deferred', e);
   }
 
-  // Poll for reminders every 10 seconds
+  // Poll for reminders every 10 seconds (SW is ready at this point)
   reminderPollInterval = setInterval(pollReminders, 10000);
 
   document.addEventListener('visibilitychange', () => {
