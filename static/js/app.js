@@ -649,6 +649,15 @@ function showNotifPromptIfNeeded() {
   notifPrompt.classList.add('visible');
 }
 
+// Notif button handlers
+notifEnableBtn.addEventListener('click', () => {
+  requestNotifPermission();
+  notifPrompt.classList.remove('visible');
+});
+notifLaterBtn.addEventListener('click', () => {
+  notifPrompt.classList.remove('visible');
+});
+
 // ─── Settings Panel ───────────────────────────────────────────────────
 toggleSettingsBtn.addEventListener('click', () => {
   settingsPanel.classList.toggle('open');
