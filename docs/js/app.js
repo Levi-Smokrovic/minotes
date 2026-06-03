@@ -54,6 +54,7 @@ const syncPeers = $('#syncPeers');
 const notifPrompt = $('#notifPrompt');
 const notifEnableBtn = $('#notifEnableBtn');
 const notifLaterBtn = $('#notifLaterBtn');
+const testNotifBtn = $('#testNotifBtn');
 const toggleSettingsBtn = $('#toggleSettingsBtn');
 const closeSettingsPanel = $('#closeSettingsPanel');
 const settingsPanel = $('#settingsPanel');
@@ -64,9 +65,17 @@ const adminSection = $('#adminSection');
 const loadSampleNotesBtn = $('#loadSampleNotesBtn');
 const loadDemoBoardBtn = $('#loadDemoBoardBtn');
 const clearAllNotesBtn = $('#clearAllNotesBtn');
-const introBanner = $('#introBanner');
+const introSlideshow = $('#introSlideshow');
 const introDismiss = $('#introDismiss');
+const introSkip = $('#introSkip');
 const logo = $('#logo');
+const scanQrBtn = $('#scanQrBtn');
+const scannerOverlay = $('#scannerOverlay');
+const closeScannerBtn = $('#closeScannerBtn');
+const scannerViewport = $('#scannerViewport');
+const scannerResult = $('#scannerResult');
+const scannedPhrase = $('#scannedPhrase');
+const connectScannedBtn = $('#connectScannedBtn');
 
 let selectedColor = '#ffffff';
 let adminClickCount = 0;
@@ -221,9 +230,15 @@ function renderNotes() {
   }).join('');
 
   $$('.note-card').forEach(card => {
-    card.addEventListener('click', () => openNote(Number(card.dataset.id)));
+    card.addEventListener('click', () => {
+      if (card._clickTimer) clearTimeout(card._clickTimer);
+      card._clickTimer = setTimeout(() => openNote(Number(card.dataset.id)), 250);
+    });
+    card.addEventListener('dblclick', () => {
+      if (card._clickTimer) clearTimeout(card._clickTimer);
+      toggleDone(Number(card.dataset.id));
+    });
   });
-  attachDoubleClick();
 }
 
 // ─── Modal ────────────────────────────────────────────────────────────
@@ -500,6 +515,14 @@ async function initPeer() {
       setSyncStatus('online', `Connected (${peerConnections.length} device${peerConnections.length > 1 ? 's' : ''})`);
       updatePeersList();
       toast('Device connected! 🔗');
+
+      // Immediately send all our notes to the new peer
+      conn.send({
+        type: 'sync-full',
+        notes: notes,
+        sender: myPhrase,
+        timestamp: Date.now(),
+      });
     });
     conn.on('data', (data) => handleSyncData(data));
     conn.on('close', () => {
@@ -526,6 +549,14 @@ function handleIncomingConnection(conn) {
     peerConnections.push(conn);
     updatePeersList();
     toast('Device connected! 🔗');
+
+    // Send our notes to the new peer
+    conn.send({
+      type: 'sync-full',
+      notes: notes,
+      sender: myPhrase,
+      timestamp: Date.now(),
+    });
   });
   conn.on('data', (data) => handleSyncData(data));
 }
@@ -603,6 +634,117 @@ connectBtn.addEventListener('click', () => {
 });
 peerPhraseInput.addEventListener('keydown', (e) => {
   if (e.key === 'Enter') connectBtn.click();
+});
+
+// ─── QR Scanner ──────────────────────────────────────────────────────
+let html5QrCode = null;
+let scannerRunning = false;
+
+scanQrBtn.addEventListener('click', () => {
+  scannerOverlay.classList.add('open');
+  scannerResult.style.display = 'none';
+  startScanner();
+});
+
+closeScannerBtn.addEventListener('click', () => {
+  stopScanner();
+  scannerOverlay.classList.remove('open');
+});
+
+function startScanner() {
+  if (scannerRunning) return;
+  if (typeof Html5Qrcode === 'undefined') {
+    toast('QR scanner library not loaded yet');
+    return;
+  }
+  try {
+    html5QrCode = new Html5Qrcode('scannerViewport');
+    html5QrCode.start(
+      { facingMode: 'environment' },
+      { fps: 10, qrbox: { width: 220, height: 220 } },
+      onScanSuccess,
+      () => {}
+    );
+    scannerRunning = true;
+  } catch (e) {
+    toast('Camera access denied or unavailable');
+    scannerOverlay.classList.remove('open');
+  }
+}
+
+function stopScanner() {
+  if (html5QrCode) {
+    try {
+      html5QrCode.stop();
+      html5QrCode.clear();
+    } catch (_) {}
+    html5QrCode = null;
+  }
+  scannerRunning = false;
+}
+
+function onScanSuccess(decodedText) {
+  // Decoded text should be a sync phrase like "fast-dove-6410"
+  const phrase = decodedText.trim();
+  if (!phrase) return;
+
+  // Auto-stop scanner
+  stopScanner();
+
+  // Show result
+  scannedPhrase.textContent = phrase;
+  scannerResult.style.display = 'flex';
+
+  // Auto-connect after a short delay
+  setTimeout(() => {
+    connectToPeer(phrase);
+    scannerOverlay.classList.remove('open');
+    scannerResult.style.display = 'none';
+    toast('Connecting via QR scan…');
+  }, 800);
+}
+
+// Also connect via the manual button
+connectScannedBtn.addEventListener('click', () => {
+  const phrase = scannedPhrase.textContent.trim();
+  if (phrase) {
+    connectToPeer(phrase);
+  }
+  scannerOverlay.classList.remove('open');
+  scannerResult.style.display = 'none';
+});
+
+// ─── Test Notification ───────────────────────────────────────────────
+testNotifBtn.addEventListener('click', () => {
+  toast('Test notification in 10 seconds… ⏱️');
+
+  // Request permission if not granted
+  if ('Notification' in window && Notification.permission === 'default') {
+    Notification.requestPermission();
+  }
+
+  setTimeout(() => {
+    toast('🔔 Test notification!');
+
+    if ('Notification' in window && Notification.permission === 'granted') {
+      try {
+        new Notification('minotes — Test', {
+          body: 'This is a test notification from minotes 🔔',
+          icon: './icon-192.svg',
+        });
+      } catch (e) { console.warn('Notif failed', e); }
+    }
+
+    try {
+      if (navigator.serviceWorker?.controller) {
+        navigator.serviceWorker.controller.postMessage({
+          type: 'show-notification',
+          title: '🔔 Test Notification',
+          body: 'This is a test from minotes!',
+        });
+      }
+    } catch (e) { console.warn('SW notif failed', e); }
+  }, 10000);
 });
 
 // ─── Settings Panel ───────────────────────────────────────────────────
@@ -747,28 +889,59 @@ clearAllNotesBtn.addEventListener('click', () => {
   }
 });
 
-// ─── Intro Banner ────────────────────────────────────────────────────
-function initIntroBanner() {
+// ─── Intro Slideshow ─────────────────────────────────────────────────
+let slideIndex = 0;
+let slideInterval = null;
+const TOTAL_SLIDES = 5;
+const SLIDE_DELAY = 4000;
+
+function initIntroSlideshow() {
   if (localStorage.getItem('minotes_introDismissed')) {
-    introBanner.classList.add('hidden');
+    introSlideshow.classList.add('hidden');
+    return;
   }
+  startSlideTimer();
 }
 
-introDismiss.addEventListener('click', () => {
-  introBanner.classList.add('hidden');
-  localStorage.setItem('minotes_introDismissed', 'true');
+function goToSlide(index) {
+  slideIndex = index;
+  document.querySelectorAll('.slide').forEach(s => s.classList.remove('active'));
+  document.querySelectorAll('.slide-dot').forEach(d => d.classList.remove('active'));
+  document.querySelector(`.slide[data-index="${index}"]`).classList.add('active');
+  document.querySelector(`.slide-dot[data-index="${index}"]`).classList.add('active');
+}
+
+function nextSlide() {
+  goToSlide((slideIndex + 1) % TOTAL_SLIDES);
+}
+
+function startSlideTimer() {
+  if (slideInterval) clearInterval(slideInterval);
+  slideInterval = setInterval(nextSlide, SLIDE_DELAY);
+}
+
+// Dot clicks
+document.querySelectorAll('.slide-dot').forEach(dot => {
+  dot.addEventListener('click', () => {
+    clearInterval(slideInterval);
+    goToSlide(parseInt(dot.dataset.index));
+    startSlideTimer();
+  });
 });
 
-// ─── Double-click to toggle done ─────────────────────────────────────
-function attachDoubleClick() {
-  $$('.note-card').forEach(card => {
-    card.addEventListener('dblclick', () => {
-      const id = Number(card.dataset.id);
-      toggleDone(id);
-    });
-  });
-}
+introDismiss.addEventListener('click', () => {
+  introSlideshow.classList.add('hidden');
+  localStorage.setItem('minotes_introDismissed', 'true');
+  if (slideInterval) clearInterval(slideInterval);
+});
 
+introSkip.addEventListener('click', () => {
+  introSlideshow.classList.add('hidden');
+  localStorage.setItem('minotes_introDismissed', 'true');
+  if (slideInterval) clearInterval(slideInterval);
+});
+
+// ─── Done toggle helper ───────────────────────────────────────────────
 function toggleDone(id) {
   const note = notes.find(n => n.id === id);
   if (!note) return;
@@ -847,7 +1020,7 @@ overlay.addEventListener('click', () => {
 async function init() {
   await registerSW();
   initDarkMode();
-  initIntroBanner();
+  initIntroSlideshow();
   showNotifPromptIfNeeded();
   getOrCreatePhrase();
   loadNotes();

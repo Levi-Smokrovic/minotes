@@ -15,6 +15,8 @@
   <script src="https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js" defer></script>
   <!-- QRCode.js for QR codes -->
   <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js" defer></script>
+  <!-- html5-qrcode for QR scanning -->
+  <script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
 </head>
 <body>
   <!-- ─── Header ─── -->
@@ -74,6 +76,7 @@
         <div class="qr-container" id="qrContainer">
           <div class="qr-placeholder">Generate a phrase above to show QR</div>
         </div>
+        <button class="btn btn-sm btn-ghost scan-qr-btn" id="scanQrBtn">📷 Scan QR Code</button>
       </div>
 
       <!-- Status & peers -->
@@ -139,6 +142,18 @@
       </div>
     </div>
     <div class="settings-group">
+      <div class="settings-group-title">Notifications</div>
+      <div class="settings-item">
+        <div>
+          <div class="settings-item-label">Test Notification</div>
+          <div class="settings-item-desc">Fire a test notification in 10 seconds</div>
+        </div>
+        <div class="settings-item-right">
+          <button class="btn btn-sm btn-ghost" id="testNotifBtn">Test 🔔</button>
+        </div>
+      </div>
+    </div>
+    <div class="settings-group">
       <div class="settings-group-title">About</div>
       <div class="settings-item">
         <div>
@@ -185,29 +200,44 @@
   <!-- ─── Overlay ─── -->
   <div class="overlay" id="overlay"></div>
 
-  <!-- ─── Intro Banner ─── -->
-  <div class="intro-banner" id="introBanner">
-    <div class="intro-badges">
-      <span class="intro-badge">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
-        Secure
-      </span>
-      <span class="intro-badge">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
-        P2P Sync
-      </span>
-      <span class="intro-badge">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/></svg>
-        Free & Open Source
-      </span>
-      <span class="intro-badge">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
-        Private
-      </span>
+  <!-- ─── Intro Slideshow ─── -->
+  <div class="intro-slideshow" id="introSlideshow">
+    <button class="intro-skip" id="introSkip">Skip →</button>
+    <div class="slides">
+      <div class="slide active" data-index="0">
+        <div class="slide-icon">✏️</div>
+        <h2>Welcome to minotes</h2>
+        <p>A free, open-source, privacy-first notes app with P2P sync. No accounts, no cloud, no tracking.</p>
+      </div>
+      <div class="slide" data-index="1">
+        <div class="slide-icon">🔗</div>
+        <h2>Peer-to-Peer Sync</h2>
+        <p>Your notes sync directly between your devices via WebRTC — no servers involved. Just you and your data.</p>
+      </div>
+      <div class="slide" data-index="2">
+        <div class="slide-icon">🔔</div>
+        <h2>Smart Reminders</h2>
+        <p>Set per-note reminders and get desktop notifications. Never miss a deadline or idea again.</p>
+      </div>
+      <div class="slide" data-index="3">
+        <div class="slide-icon">🎨</div>
+        <h2>Minimal & Beautiful</h2>
+        <p>Dark mode, color labels, filters, and a clean design. Everything you need, nothing you don't.</p>
+      </div>
+      <div class="slide" data-index="4">
+        <div class="slide-icon">🔒</div>
+        <h2>Private & Open Source</h2>
+        <p>Your thoughts stay yours. No accounts, no data collection, no ads. Free forever.</p>
+        <button class="intro-dismiss" id="introDismiss">Start writing ✨</button>
+      </div>
     </div>
-    <h2>Your thoughts, synced.</h2>
-    <p>minotes is a free, open-source, privacy-first notes app. Your notes sync directly between your devices via P2P — no cloud, no tracking, no accounts.</p>
-    <button class="intro-dismiss" id="introDismiss">Got it — start writing ✨</button>
+    <div class="slide-dots" id="slideDots">
+      <span class="slide-dot active" data-index="0"></span>
+      <span class="slide-dot" data-index="1"></span>
+      <span class="slide-dot" data-index="2"></span>
+      <span class="slide-dot" data-index="3"></span>
+      <span class="slide-dot" data-index="4"></span>
+    </div>
   </div>
 
   <!-- ─── Filter bar ─── -->
@@ -275,6 +305,22 @@
 
   <!-- ─── Toast ─── -->
   <div class="toast-container" id="toastContainer"></div>
+
+  <!-- ─── QR Scanner Overlay ─── -->
+  <div class="scanner-overlay" id="scannerOverlay">
+    <div class="scanner-modal">
+      <div class="scanner-header">
+        <h3>📷 Scan QR Code</h3>
+        <button class="btn btn-icon" id="closeScannerBtn">&times;</button>
+      </div>
+      <div class="scanner-viewport" id="scannerViewport"></div>
+      <p class="scanner-hint">Point your camera at a minotes QR code</p>
+      <div class="scanner-result" id="scannerResult" style="display:none">
+        <span>Found: <strong id="scannedPhrase"></strong></span>
+        <button class="btn btn-sm btn-primary" id="connectScannedBtn">Connect</button>
+      </div>
+    </div>
+  </div>
 
   <!-- ─── Notif permission prompt ─── -->
   <div class="notif-prompt" id="notifPrompt">
