@@ -277,23 +277,29 @@ async function pollReminders() {
     events.forEach(ev => {
       toast(`⏰ ${ev.title}`);
 
+      const body = ev.title + (ev.content ? `\n${ev.content}` : '');
+
       // Desktop notification via Notification API
       if ('Notification' in window && Notification.permission === 'granted') {
-        new Notification('minotes — Reminder', {
-          body: ev.title + (ev.content ? `\n${ev.content}` : ''),
-          icon: '/static/icon-192.svg',
-          tag: `reminder-${ev.id}`,
-        });
+        try {
+          new Notification('minotes — Reminder', {
+            body,
+            icon: '/static/icon-192.svg',
+            tag: `reminder-${ev.id}`,
+          });
+        } catch (e) { console.warn('Notification failed', e); }
       }
 
       // Send to service worker for persistent notification
-      if (navigator.serviceWorker.controller) {
-        navigator.serviceWorker.controller.postMessage({
-          type: 'show-notification',
-          title: `⏰ ${ev.title}`,
-          body: ev.content || '',
-        });
-      }
+      try {
+        if (navigator.serviceWorker.controller) {
+          navigator.serviceWorker.controller.postMessage({
+            type: 'show-notification',
+            title: `⏰ ${ev.title}`,
+            body: ev.content || '',
+          });
+        }
+      } catch (e) { console.warn('SW postMessage failed', e); }
     });
     updateReminderPanel();
     await loadNotes();
@@ -606,15 +612,36 @@ async function registerSW() {
   try {
     const reg = await navigator.serviceWorker.register('/sw.js');
     console.log('SW registered', reg.scope);
-
-    if ('Notification' in window && Notification.permission === 'default') {
-      const result = await Notification.requestPermission();
-      console.log('Notification permission:', result);
-    }
   } catch (e) {
     console.warn('SW registration failed', e);
   }
 }
+
+async function requestNotifPermission() {
+  if (!('Notification' in window)) return;
+  const result = await Notification.requestPermission();
+  const el = document.getElementById('notifPrompt');
+  if (el) el.style.display = 'none';
+  if (result === 'granted') {
+    toast('Notifications enabled ✅');
+  }
+  return result;
+}
+
+function showNotifPromptIfNeeded() {
+  if (!('Notification' in window)) return;
+  if (Notification.permission !== 'default') return;
+  const el = document.getElementById('notifPrompt');
+  if (el) el.style.display = 'flex';
+}
+
+document.addEventListener('click', (e) => {
+  if (e.target.id === 'notifEnableBtn') requestNotifPermission();
+  if (e.target.id === 'notifLaterBtn') {
+    const el = document.getElementById('notifPrompt');
+    if (el) el.style.display = 'none';
+  }
+});
 
 // ─── Event listeners ──────────────────────────────────────────────────
 
@@ -655,6 +682,7 @@ overlay.addEventListener('click', () => {
 // ─── Init ─────────────────────────────────────────────────────────────
 async function init() {
   await registerSW();
+  showNotifPromptIfNeeded();
   await loadNotes();
   updateReminderPanel();
 

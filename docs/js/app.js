@@ -51,6 +51,9 @@ const connectBtn = $('#connectBtn');
 const qrContainer = $('#qrContainer');
 const syncStatus = $('#syncStatus');
 const syncPeers = $('#syncPeers');
+const notifPrompt = $('#notifPrompt');
+const notifEnableBtn = $('#notifEnableBtn');
+const notifLaterBtn = $('#notifLaterBtn');
 
 let selectedColor = '#ffffff';
 
@@ -320,21 +323,29 @@ function scheduleReminders() {
 function fireReminder(note) {
   toast(`⏰ ${note.title || 'Untitled'}`);
 
+  const body = (note.title || 'Untitled') + (note.content ? `\n${note.content}` : '');
+
+  // Try Notification API (requires user to have granted permission)
   if ('Notification' in window && Notification.permission === 'granted') {
-    new Notification('minotes — Reminder', {
-      body: (note.title || 'Untitled') + (note.content ? `\n${note.content}` : ''),
-      icon: './icon-192.svg',
-      tag: `reminder-${note.id}`,
-    });
+    try {
+      new Notification('minotes — Reminder', {
+        body,
+        icon: './icon-192.svg',
+        tag: `reminder-${note.id}`,
+      });
+    } catch (e) { console.warn('Notification failed', e); }
   }
 
-  if (navigator.serviceWorker?.controller) {
-    navigator.serviceWorker.controller.postMessage({
-      type: 'show-notification',
-      title: `⏰ ${note.title || 'Untitled'}`,
-      body: note.content || '',
-    });
-  }
+  // Also try Service Worker postMessage as fallback/extra
+  try {
+    if (navigator.serviceWorker?.controller) {
+      navigator.serviceWorker.controller.postMessage({
+        type: 'show-notification',
+        title: `⏰ ${note.title || 'Untitled'}`,
+        body: note.content || '',
+      });
+    }
+  } catch (e) { console.warn('SW postMessage failed', e); }
 
   // Clear the reminder
   updateNote(note.id, { remind_at: null });
@@ -584,11 +595,29 @@ async function registerSW() {
   if (!('serviceWorker' in navigator)) return;
   try {
     await navigator.serviceWorker.register('./sw.js');
-    if ('Notification' in window && Notification.permission === 'default') {
-      await Notification.requestPermission();
-    }
   } catch (e) { console.warn('SW failed', e); }
 }
+
+async function requestNotifPermission() {
+  if (!('Notification' in window)) return;
+  const result = await Notification.requestPermission();
+  notifPrompt.style.display = 'none';
+  if (result === 'granted') {
+    toast('Notifications enabled ✅');
+  }
+  return result;
+}
+
+function showNotifPromptIfNeeded() {
+  if (!('Notification' in window)) return;
+  if (Notification.permission !== 'default') return;
+  notifPrompt.style.display = 'flex';
+}
+
+notifEnableBtn.addEventListener('click', requestNotifPermission);
+notifLaterBtn.addEventListener('click', () => {
+  notifPrompt.style.display = 'none';
+});
 
 // ─── Event listeners ──────────────────────────────────────────────────
 newNoteBtn.addEventListener('click', newNote);
@@ -625,6 +654,7 @@ overlay.addEventListener('click', () => {
 // ─── Init ─────────────────────────────────────────────────────────────
 async function init() {
   await registerSW();
+  showNotifPromptIfNeeded();
   getOrCreatePhrase();
   loadNotes();
 

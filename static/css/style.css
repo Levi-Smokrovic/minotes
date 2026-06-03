@@ -765,3 +765,125 @@ body {
   .filter-bar { padding: 8px 16px 0; }
   .reminder-presets { padding: 6px 16px; gap: 4px; }
 }
+
+/* =====================================================================
+   Enhanced Design — DateTime, QR, Notifications
+   ===================================================================== */
+
+/* --- Custom datetime-local picker --- */
+input[type="datetime-local"] {
+  font-family: var(--font);
+  font-size: 11px;
+  padding: 4px 8px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg);
+  color: var(--text);
+  outline: none;
+  cursor: pointer;
+  transition: border-color var(--transition), box-shadow var(--transition);
+  min-width: 140px;
+  -webkit-appearance: none;
+  appearance: none;
+}
+
+input[type="datetime-local"]:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px rgba(43,43,43,.1);
+}
+
+input[type="datetime-local"]::-webkit-calendar-picker-indicator {
+  opacity: .5;
+  padding: 2px;
+  cursor: pointer;
+  filter: invert(0);
+  transition: opacity var(--transition);
+}
+
+input[type="datetime-local"]::-webkit-calendar-picker-indicator:hover {
+  opacity: 1;
+}
+
+input[type="datetime-local"]::-webkit-datetime-edit {
+  color: var(--text);
+  font-family: var(--font);
+  font-size: 11px;
+}
+
+input[type="datetime-local"]::-webkit-datetime-edit-fields-wrapper {
+  color: var(--text);
+}
+
+input[type="datetime-local"]::-webkit-datetime-edit-day-field:focus,
+input[type="datetime-local"]::-webkit-datetime-edit-month-field:focus,
+input[type="datetime-local"]::-webkit-datetime-edit-year-field:focus,
+input[type="datetime-local"]::-webkit-datetime-edit-hour-field:focus,
+input[type="datetime-local"]::-webkit-datetime-edit-minute-field:focus {
+  background: var(--accent);
+  color: #fff;
+  border-radius: 3px;
+  outline: none;
+}
+
+/* --- QR Code styling --- */
+.qr-container canvas,
+.qr-container img {
+  border-radius: 12px;
+  background: #fff;
+  padding: 8px;
+  box-shadow: 0 1px 4px rgba(0,0,0,.06);
+  display: block;
+  max-width: 100%;
+  height: auto;
+}
+
+.qr-container {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  min-height: 140px;
+  background: var(--bg);
+  border-radius: 12px;
+  border: 1px dashed var(--border);
+  padding: 16px;
+  transition: border-color var(--transition);
+}
+
+.qr-container:has(canvas),
+.qr-container:has(img) {
+  border-color: transparent;
+  background: transparent;
+}
+
+/* --- Notification permission prompt --- */
+.notif-prompt {
+  position: fixed;
+  bottom: 80px;
+  right: 24px;
+  z-index: 300;
+  display: none;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 16px 20px;
+  box-shadow: var(--shadow-lg);
+  max-width: 320px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  animation: toastIn 300ms ease both;
+}
+.notif-prompt p {
+  font-size: 13px;
+  color: var(--text);
+  line-height: 1.5;
+}
+.notif-prompt-actions {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+}
+.notif-prompt-actions .btn {
+  font-size: 12px;
+  padding: 6px 14px;
+}
