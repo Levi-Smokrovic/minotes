@@ -1274,11 +1274,22 @@ input[type="datetime-local"]::-webkit-datetime-edit-minute-field:focus {
   position: relative;
 }
 
-.slide-icon {
-  font-size: 56px;
-  line-height: 1;
+.slide-step {
+  width: 48px;
+  height: 48px;
+  border-radius: 50%;
+  background: rgba(255,255,255,.1);
+  border: 2px solid rgba(255,255,255,.25);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 16px;
+  font-weight: 700;
+  color: #fff;
+  letter-spacing: 1px;
   margin-bottom: 16px;
-  filter: drop-shadow(0 4px 12px rgba(0,0,0,.1));
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
 }
 
 .slide h2 {
