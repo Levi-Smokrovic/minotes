@@ -4,6 +4,8 @@
 import json
 import sqlite3
 import os
+import smtplib
+from email.message import EmailMessage
 from datetime import datetime, timedelta
 from threading import Thread, Event
 from time import sleep
@@ -16,6 +18,14 @@ from flask_cors import CORS
 # ---------------------------------------------------------------------------
 DB_PATH = os.path.join(os.path.dirname(__file__), "notes.db")
 PORT = 8080
+
+# Optional SMTP settings for email reminders (set env vars to enable)
+SMTP_HOST = os.environ.get("MINOTES_SMTP_HOST", "")
+SMTP_PORT = int(os.environ.get("MINOTES_SMTP_PORT", "587"))
+SMTP_USER = os.environ.get("MINOTES_SMTP_USER", "")
+SMTP_PASS = os.environ.get("MINOTES_SMTP_PASS", "")
+SMTP_FROM = os.environ.get("MINOTES_SMTP_FROM", SMTP_USER)
+EMAIL_ENABLED = bool(SMTP_HOST and SMTP_USER and SMTP_PASS)
 
 app = Flask(__name__, static_folder="static", template_folder="templates")
 CORS(app)
@@ -59,6 +69,32 @@ with get_db() as db:
 # ---------------------------------------------------------------------------
 _reminder_events = []  # list of dicts kept in memory for fast lookup
 
+def send_email_reminder(to_addr, title, content):
+    """Send an email reminder. Returns True if sent, False if not configured."""
+    if not EMAIL_ENABLED or not to_addr:
+        return False
+    try:
+        msg = EmailMessage()
+        msg["Subject"] = f"Reminder: {title} — minotes"
+        msg["From"] = SMTP_FROM
+        msg["To"] = to_addr
+        body = f"Reminder from minotes\n\n"
+        body += f"Title: {title}\n"
+        if content:
+            body += f"Note: {content[:500]}\n"
+        body += f"\n— minotes"
+        msg.set_content(body)
+
+        with smtplib.SMTP(SMTP_HOST, SMTP_PORT) as srv:
+            srv.starttls()
+            srv.login(SMTP_USER, SMTP_PASS)
+            srv.send_message(msg)
+        print(f"  ✓ Email reminder sent to {to_addr} for '{title}'")
+        return True
+    except Exception as e:
+        print(f"  ✗ Email reminder failed: {e}")
+        return False
+
 def _reminder_loop():
     global _reminder_events
     while True:
@@ -78,6 +114,10 @@ def _reminder_loop():
                     "content": r["content"][:120],
                     "fired_at": datetime.now().isoformat()
                 })
+                # Send email reminder if configured
+                email_addr = get_email_config()
+                if email_addr:
+                    send_email_reminder(email_addr, r["title"], r["content"])
         except Exception:
             pass
         sleep(30)
@@ -90,6 +130,25 @@ def pop_reminder_events():
     events = list(_reminder_events)
     _reminder_events.clear()
     return events
+
+# ---------------------------------------------------------------------------
+# Email config (stored in a simple JSON file next to the DB)
+# ---------------------------------------------------------------------------
+EMAIL_CONFIG_PATH = os.path.join(os.path.dirname(__file__), "email_config.json")
+
+def get_email_config():
+    """Return the configured email address, or empty string."""
+    try:
+        with open(EMAIL_CONFIG_PATH) as f:
+            data = json.load(f)
+            return data.get("email", "")
+    except (FileNotFoundError, json.JSONDecodeError):
+        return ""
+
+def set_email_config(email_addr):
+    """Save the email address for reminders."""
+    with open(EMAIL_CONFIG_PATH, "w") as f:
+        json.dump({"email": email_addr.strip()}, f)
 
 # ---------------------------------------------------------------------------
 # Routes — API
@@ -149,6 +208,20 @@ def delete_note(note_id):
 def poll_reminders():
     events = pop_reminder_events()
     return jsonify(events)
+
+@app.route("/api/email/config", methods=["GET"])
+def get_email_config_route():
+    return jsonify({
+        "email": get_email_config(),
+        "available": EMAIL_ENABLED,
+    })
+
+@app.route("/api/email/config", methods=["PUT"])
+def set_email_config_route():
+    data = request.get_json() or {}
+    email = data.get("email", "")
+    set_email_config(email)
+    return jsonify({"ok": True, "email": email})
 
 # ---------------------------------------------------------------------------
 # Static files (service worker, manifest)

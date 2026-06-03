@@ -76,6 +76,7 @@ const scannerViewport = $('#scannerViewport');
 const scannerResult = $('#scannerResult');
 const scannedPhrase = $('#scannedPhrase');
 const connectScannedBtn = $('#connectScannedBtn');
+const forgetPeersBtn = $('#forgetPeersBtn');
 
 let selectedColor = '#ffffff';
 let adminClickCount = 0;
@@ -474,10 +475,34 @@ function setSyncStatus(state, msg) {
 }
 
 function updatePeersList() {
-  if (!peerConnections.length) { syncPeers.innerHTML = ''; return; }
+  const forgetBtn = $('#forgetPeersBtn');
+  if (!peerConnections.length) {
+    syncPeers.innerHTML = '';
+    if (forgetBtn) forgetBtn.style.display = 'none';
+    return;
+  }
   syncPeers.innerHTML = peerConnections.map((_, i) =>
-    `<div class="sync-peer-item"><span class="sync-peer-dot"></span><span>Device ${i + 1}</span></div>`
+    `<div class="sync-peer-item" style="display:flex;align-items:center;justify-content:space-between;">
+      <span style="display:flex;align-items:center;gap:8px;"><span class="sync-peer-dot"></span><span>Device ${i + 1}</span></span>
+      <button class="disconnect-peer-btn" data-index="${i}" style="background:none;border:1px solid var(--border);border-radius:6px;color:var(--text-muted);cursor:pointer;font-size:11px;padding:2px 8px;">Disconnect</button>
+    </div>`
   ).join('');
+  if (forgetBtn) forgetBtn.style.display = 'block';
+
+  // Individual disconnect buttons
+  $$('.disconnect-peer-btn').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const idx = parseInt(btn.dataset.index);
+      const conn = peerConnections[idx];
+      if (conn) {
+        conn.close();
+        peerConnections.splice(idx, 1);
+        updatePeersList();
+        if (!peerConnections.length) setSyncStatus('online', 'Connected — ready for sync');
+      }
+    });
+  });
 }
 
 // ─── Stored peers (auto-reconnect after refresh) ─────────────────────
@@ -639,8 +664,14 @@ function broadcastSync() {
 // ─── Sync UI Events ───────────────────────────────────────────────────
 
 // ─── Sync UI Events ───────────────────────────────────────────────────
+forgetPeersBtn.addEventListener('click', () => {
+  if (!peerConnections.length) return;
+  if (!confirm('Disconnect all synced devices?')) return;
+  forgetAllPeers();
+});
+
 copyPhraseBtn.addEventListener('click', () => {
-  navigator.clipboard.writeText(myPhraseInput.value).then(() => toast('Phrase copied 📋'));
+  navigator.clipboard.writeText(myPhraseInput.value).then(() => toast('Phrase copied'));
 });
 
 regeneratePhraseBtn.addEventListener('click', () => {
@@ -749,19 +780,30 @@ testNotifBtn.addEventListener('click', async () => {
     const result = await Notification.requestPermission();
     if (result !== 'granted') { toast('Permission denied'); return; }
   }
-  toast('Test notification in 10 seconds…');
+  toast('Test notification in 5 seconds…');
 
   setTimeout(async () => {
     try {
-      // Use SW registration for most reliable notification
+      // Try SW registration first (most reliable)
       const reg = await navigator.serviceWorker.ready;
       await reg.showNotification('minotes — Test', {
         body: 'This is a test notification from minotes',
         icon: './icon-192.svg',
-        tag: 'minotes-test',
+        tag: 'minotes-test-' + Date.now(),
       });
-    } catch (e) { console.warn('SW notif failed', e); }
-  }, 10000);
+    } catch (e) {
+      // Fallback: direct notification
+      try {
+        new Notification('minotes — Test', {
+          body: 'This is a test notification from minotes',
+          icon: './icon-192.svg',
+        });
+      } catch (e2) {
+        toast('Notification failed — check browser settings');
+        console.warn('Both notification methods failed', e, e2);
+      }
+    }
+  }, 5000);
 });
 
 // ─── Settings Panel ───────────────────────────────────────────────────

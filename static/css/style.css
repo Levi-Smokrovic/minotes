@@ -1032,6 +1032,78 @@ input[type="datetime-local"]::-webkit-datetime-edit-minute-field:focus {
   border-color: var(--border);
 }
 
+[data-theme="dark"] ::-webkit-scrollbar-thumb {
+  background: #555;
+}
+
+[data-theme="dark"] ::selection {
+  background: rgba(245,245,245,.25);
+  color: #fff;
+}
+
+[data-theme="dark"] input,
+[data-theme="dark"] textarea,
+[data-theme="dark"] .sync-phrase-input,
+[data-theme="dark"] .preset-btn,
+[data-theme="dark"] .modal-title,
+[data-theme="dark"] .modal-body {
+  color-scheme: dark;
+}
+
+[data-theme="dark"] input[type="datetime-local"]::-webkit-datetime-edit {
+  color: var(--text);
+}
+
+[data-theme="dark"] .color-dot.active {
+  box-shadow: 0 0 0 2px var(--bg), 0 0 0 4px var(--accent);
+}
+
+[data-theme="dark"] .note-card-pinned {
+  opacity: .6;
+}
+
+[data-theme="dark"] .settings-panel,
+[data-theme="dark"] .sync-panel,
+[data-theme="dark"] .reminder-panel {
+  background: var(--surface);
+}
+
+[data-theme="dark"] .slide-nav {
+  background: rgba(255,255,255,.08);
+}
+[data-theme="dark"] .slide-nav:hover {
+  background: rgba(255,255,255,.2);
+}
+
+[data-theme="dark"] .toast {
+  background: #333;
+  color: #e5e5e5;
+}
+
+[data-theme="dark"] .intro-dismiss {
+  background: var(--accent);
+  color: var(--bg);
+}
+
+[data-theme="dark"] .scanner-modal {
+  background: var(--surface);
+  border: 1px solid var(--border);
+}
+
+[data-theme="dark"] .admin-btn {
+  border-color: var(--border);
+  background: var(--bg);
+  color: var(--text);
+}
+[data-theme="dark"] .admin-btn:hover {
+  background: var(--accent);
+  color: var(--bg);
+}
+
+[data-theme="dark"] .note-card.done .note-card-done-badge {
+  color: #4ade80;
+}
+
 /* =====================================================================
    Settings Panel
    ===================================================================== */
