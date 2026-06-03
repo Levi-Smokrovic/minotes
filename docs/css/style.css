@@ -1100,6 +1100,14 @@ input[type="datetime-local"]::-webkit-datetime-edit-minute-field:focus {
   color: var(--bg);
 }
 
+[data-theme="dark"] .btn-primary {
+  background: var(--bg);
+  color: var(--accent);
+}
+[data-theme="dark"] .btn-primary:hover {
+  background: #000;
+}
+
 [data-theme="dark"] .note-card.done .note-card-done-badge {
   color: #4ade80;
 }

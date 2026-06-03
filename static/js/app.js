@@ -76,6 +76,9 @@ const scannerViewport = $('#scannerViewport');
 const scannerResult = $('#scannerResult');
 const scannedPhrase = $('#scannedPhrase');
 const connectScannedBtn = $('#connectScannedBtn');
+const notifPrompt = $('#notifPrompt');
+const notifEnableBtn = $('#notifEnableBtn');
+const notifLaterBtn = $('#notifLaterBtn');
 const testNotifBtn = $('#testNotifBtn');
 const forgetPeersBtn = $('#forgetPeersBtn');
 const emailReminderGroup = $('#emailReminderGroup');
@@ -366,6 +369,43 @@ function updateReminderPanel() {
       overlay.classList.remove('open');
     });
   });
+}
+
+// ─── Email reminders ──────────────────────────────────────────────────
+async function loadEmailConfig() {
+  try {
+    const data = await api('GET', '/api/email/config');
+    if (!data.available) {
+      if (emailReminderGroup) emailReminderGroup.style.display = 'none';
+      return;
+    }
+    if (emailReminderGroup) emailReminderGroup.style.display = '';
+    if (emailReminderInput) emailReminderInput.value = data.email || '';
+    if (emailStatus) emailStatus.textContent = data.email ? '✓ Email reminders active' : '';
+  } catch (_) {
+    if (emailReminderGroup) emailReminderGroup.style.display = 'none';
+  }
+}
+
+async function saveEmailConfig() {
+  const email = emailReminderInput ? emailReminderInput.value.trim() : '';
+  if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+    toast('Please enter a valid email address.');
+    return;
+  }
+  try {
+    const data = await api('PUT', '/api/email/config', { email });
+    if (data.ok) {
+      toast(email ? 'Email saved ✓' : 'Email removed.');
+      if (emailStatus) emailStatus.textContent = email ? '✓ Email reminders active' : '';
+    }
+  } catch (_) {
+    toast('Failed to save email config.');
+  }
+}
+
+if (saveEmailBtn) {
+  saveEmailBtn.addEventListener('click', saveEmailConfig);
 }
 
 // ─── Reminder panel toggle ────────────────────────────────────────────
