@@ -952,6 +952,10 @@ function nextSlide() {
   goToSlide((slideIndex + 1) % TOTAL_SLIDES);
 }
 
+function prevSlide() {
+  goToSlide((slideIndex - 1 + TOTAL_SLIDES) % TOTAL_SLIDES);
+}
+
 function startSlideTimer() {
   if (slideInterval) clearInterval(slideInterval);
   slideInterval = setInterval(nextSlide, SLIDE_DELAY);
@@ -964,6 +968,18 @@ document.querySelectorAll('.slide-dot').forEach(dot => {
     goToSlide(parseInt(dot.dataset.index));
     startSlideTimer();
   });
+});
+
+// Nav arrows
+$('#slideNext').addEventListener('click', () => {
+  clearInterval(slideInterval);
+  nextSlide();
+  startSlideTimer();
+});
+$('#slidePrev').addEventListener('click', () => {
+  clearInterval(slideInterval);
+  prevSlide();
+  startSlideTimer();
 });
 
 introDismiss.addEventListener('click', () => {
