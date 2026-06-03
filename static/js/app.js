@@ -55,8 +55,23 @@ const connectBtn = $('#connectBtn');
 const qrContainer = $('#qrContainer');
 const syncStatus = $('#syncStatus');
 const syncPeers = $('#syncPeers');
+const toggleSettingsBtn = $('#toggleSettingsBtn');
+const closeSettingsPanel = $('#closeSettingsPanel');
+const settingsPanel = $('#settingsPanel');
+const darkModeToggle = $('#darkModeToggle');
+const exportNotesBtn = $('#exportNotesBtn');
+const importNotesBtn = $('#importNotesBtn');
+const adminSection = $('#adminSection');
+const loadSampleNotesBtn = $('#loadSampleNotesBtn');
+const loadDemoBoardBtn = $('#loadDemoBoardBtn');
+const clearAllNotesBtn = $('#clearAllNotesBtn');
+const introBanner = $('#introBanner');
+const introDismiss = $('#introDismiss');
+const logo = $('#logo');
 
 let selectedColor = '#ffffff';
+let logoClickCount = 0;
+let logoClickTimer = null;
 
 // ─── Helpers ──────────────────────────────────────────────────────────
 function formatDT(iso) {
@@ -161,6 +176,7 @@ function renderNotes() {
   $$('.note-card').forEach(card => {
     card.addEventListener('click', () => openNote(Number(card.dataset.id)));
   });
+  attachDoubleClick();
 }
 
 // ─── Load ─────────────────────────────────────────────────────────────
@@ -620,8 +636,7 @@ async function registerSW() {
 async function requestNotifPermission() {
   if (!('Notification' in window)) return;
   const result = await Notification.requestPermission();
-  const el = document.getElementById('notifPrompt');
-  if (el) el.style.display = 'none';
+  notifPrompt.classList.remove('visible');
   if (result === 'granted') {
     toast('Notifications enabled ✅');
   }
@@ -631,17 +646,177 @@ async function requestNotifPermission() {
 function showNotifPromptIfNeeded() {
   if (!('Notification' in window)) return;
   if (Notification.permission !== 'default') return;
-  const el = document.getElementById('notifPrompt');
-  if (el) el.style.display = 'flex';
+  notifPrompt.classList.add('visible');
 }
 
-document.addEventListener('click', (e) => {
-  if (e.target.id === 'notifEnableBtn') requestNotifPermission();
-  if (e.target.id === 'notifLaterBtn') {
-    const el = document.getElementById('notifPrompt');
-    if (el) el.style.display = 'none';
+// ─── Settings Panel ───────────────────────────────────────────────────
+toggleSettingsBtn.addEventListener('click', () => {
+  settingsPanel.classList.toggle('open');
+  overlay.classList.toggle('open');
+});
+closeSettingsPanel.addEventListener('click', () => {
+  settingsPanel.classList.remove('open');
+  overlay.classList.remove('open');
+});
+
+// ─── Dark Mode ────────────────────────────────────────────────────────
+function initDarkMode() {
+  const saved = localStorage.getItem('minotes_darkMode');
+  if (saved === 'true') {
+    document.documentElement.setAttribute('data-theme', 'dark');
+    darkModeToggle.checked = true;
+  }
+}
+
+darkModeToggle.addEventListener('change', () => {
+  if (darkModeToggle.checked) {
+    document.documentElement.setAttribute('data-theme', 'dark');
+    localStorage.setItem('minotes_darkMode', 'true');
+  } else {
+    document.documentElement.removeAttribute('data-theme');
+    localStorage.setItem('minotes_darkMode', 'false');
   }
 });
+
+// ─── Export / Import ──────────────────────────────────────────────────
+exportNotesBtn.addEventListener('click', () => {
+  const data = JSON.stringify(notes, null, 2);
+  const blob = new Blob([data], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `minotes-${new Date().toISOString().slice(0, 10)}.json`;
+  a.click();
+  URL.revokeObjectURL(url);
+  toast('Notes exported 📦');
+});
+
+importNotesBtn.addEventListener('click', () => {
+  const input = document.createElement('input');
+  input.type = 'file';
+  input.accept = '.json';
+  input.addEventListener('change', async () => {
+    const file = input.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = async (e) => {
+      try {
+        const imported = JSON.parse(e.target.result);
+        if (!Array.isArray(imported)) throw new Error('Invalid');
+        for (const n of imported) {
+          if (!n.title) continue;
+          await api('POST', '/api/notes', {
+            title: n.title, content: n.content || '',
+            color: n.color || '#ffffff',
+            remind_at: n.remind_at || null,
+            done: n.done || 0,
+          });
+        }
+        await loadNotes();
+        toast(`Imported ${imported.length} notes 📥`);
+      } catch (err) {
+        toast('Failed to import — invalid file');
+      }
+    };
+    reader.readAsText(file);
+  });
+  input.click();
+});
+
+// ─── Hidden Admin Panel ──────────────────────────────────────────────
+logo.addEventListener('click', () => {
+  logoClickCount++;
+  if (logoClickTimer) clearTimeout(logoClickTimer);
+  logoClickTimer = setTimeout(() => { logoClickCount = 0; }, 2000);
+  if (logoClickCount >= 5) {
+    logoClickCount = 0;
+    adminSection.style.display = 'block';
+    toast('🔐 Admin panel unlocked');
+    settingsPanel.classList.add('open');
+    overlay.classList.add('open');
+  }
+});
+
+const SAMPLE_NOTES = [
+  { title: 'Welcome to minotes! 👋', content: 'This is a sample note. Start typing to replace it, or tap and create a new one.\n\n• Click + New Note to create\n• Double-click a note to toggle Done\n• Use reminders via the ⏰ button', color: '#fef3c7', done: 0 },
+  { title: 'Meeting Notes', content: 'Q2 Planning:\n- Review roadmap\n- Assign sprint goals\n- Set OKRs for next quarter\n- Schedule follow-up', color: '#dbeafe', done: 0 },
+  { title: 'Shopping List', content: '• 🥑 Avocados\n• 🍞 Bread\n• 🥛 Almond milk\n• 🥦 Broccoli\n• 🍫 Dark chocolate', color: '#dcfce7', done: 0 },
+  { title: 'Idea: Color Picker', content: 'Would be nice to have a quick color palette picker for notes. Could use it for categorizing projects and personal stuff.', color: '#fce7f3', done: 0, pinned: 1 },
+  { title: 'Done Example', content: 'This note is already done. Double-click any note to toggle its done status.', color: '#f5f5f4', done: 1 },
+];
+
+const DEMO_NOTES = [
+  { title: '🚀 Project Alpha', content: 'Status: In Progress\n\nFrontend: 80% complete\nBackend: 45% complete\nDesign: Review pending', color: '#dbeafe', done: 0, pinned: 1 },
+  { title: '✅ Homepage redesign', content: 'New hero section, updated color palette, responsive navigation', color: '#dcfce7', done: 1 },
+  { title: '✅ API integration', content: 'REST endpoints for user auth and data sync', color: '#dcfce7', done: 1 },
+  { title: '🔄 Database migration', content: 'Moving from SQLite to PostgreSQL. Migration script ready for review.', color: '#fef3c7', done: 0 },
+  { title: '🐛 Bug: Login redirect', content: 'After OAuth login, users are redirected to /404 instead of /dashboard.', color: '#fce7f3', done: 0, pinned: 1 },
+  { title: '📝 Sprint Review', content: 'Team: 8/10 stories completed\nVelocity: 42 points\nBlockers: None', color: '#fef3c7', done: 0 },
+  { title: '✅ Unit tests for auth', content: 'Coverage at 92% — all critical paths tested', color: '#dcfce7', done: 1 },
+  { title: '✅ Dark mode support', content: 'Implemented CSS custom properties, toggle in settings', color: '#dcfce7', done: 1 },
+  { title: '📅 Deployment v2.1', content: 'Target: Next Tuesday\nIncludes: Bug fixes + performance', color: '#f5f5f4', done: 0 },
+];
+
+async function addPremadeNotes(list) {
+  for (const n of list) {
+    await api('POST', '/api/notes', {
+      title: n.title, content: n.content,
+      color: n.color, remind_at: n.remind_at || null, done: n.done || 0,
+    });
+  }
+  await loadNotes();
+  toast(`Loaded ${list.length} notes ✅`);
+  settingsPanel.classList.remove('open');
+  overlay.classList.remove('open');
+}
+
+loadSampleNotesBtn.addEventListener('click', () => addPremadeNotes(SAMPLE_NOTES));
+loadDemoBoardBtn.addEventListener('click', () => addPremadeNotes(DEMO_NOTES));
+
+clearAllNotesBtn.addEventListener('click', async () => {
+  if (!confirm('Delete ALL notes? This cannot be undone.')) return;
+  if (!confirm('Are you sure? All notes will be permanently deleted.')) return;
+  const allNotes = [...notes];
+  for (const n of allNotes) {
+    await api('DELETE', `/api/notes/${n.id}`);
+  }
+  await loadNotes();
+  toast('All notes cleared 🗑️');
+  settingsPanel.classList.remove('open');
+  overlay.classList.remove('open');
+});
+
+// ─── Intro Banner ────────────────────────────────────────────────────
+function initIntroBanner() {
+  if (localStorage.getItem('minotes_introDismissed')) {
+    introBanner.classList.add('hidden');
+  }
+}
+
+introDismiss.addEventListener('click', () => {
+  introBanner.classList.add('hidden');
+  localStorage.setItem('minotes_introDismissed', 'true');
+});
+
+// ─── Double-click to toggle done ─────────────────────────────────────
+function attachDoubleClick() {
+  $$('.note-card').forEach(card => {
+    card.addEventListener('dblclick', () => {
+      const id = Number(card.dataset.id);
+      toggleDone(id);
+    });
+  });
+}
+
+async function toggleDone(id) {
+  const note = notes.find(n => n.id === id);
+  if (!note) return;
+  const newDone = note.done ? 0 : 1;
+  await api('PUT', `/api/notes/${id}`, { done: newDone });
+  await loadNotes();
+  toast(newDone ? 'Marked as done ✅' : 'Reopened ↩️');
+  broadcastSync();
+}
 
 // ─── Event listeners ──────────────────────────────────────────────────
 
@@ -676,12 +851,15 @@ document.addEventListener('keydown', e => {
 overlay.addEventListener('click', () => {
   reminderPanel.classList.remove('open');
   syncPanel.classList.remove('open');
+  settingsPanel.classList.remove('open');
   closeModalFn();
 });
 
 // ─── Init ─────────────────────────────────────────────────────────────
 async function init() {
   await registerSW();
+  initDarkMode();
+  initIntroBanner();
   showNotifPromptIfNeeded();
   await loadNotes();
   updateReminderPanel();
