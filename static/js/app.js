@@ -10,8 +10,6 @@ let currentFilter = 'all';
 let peer = null;
 let peerConnections = [];
 let myPhrase = localStorage.getItem('minotes_phrase') || '';
-let isSyncing = false;
-let lastSync = '';
 let qrCodeInstance = null;
 
 // ─── DOM refs ─────────────────────────────────────────────────────────
@@ -1003,6 +1001,11 @@ regeneratePhraseBtn.addEventListener('click', () => {
   myPhrase = newPhrase;
   localStorage.setItem('minotes_phrase', myPhrase);
   localStorage.removeItem('minotes_peers');
+  // Close any open peer connections and drop the pending outbound
+  // queue — those messages belonged to the old device identity.
+  peerConnections.forEach(c => { try { c.close(); } catch (_) {} });
+  peerConnections = [];
+  pendingOutbound = [];
   myPhraseInput.value = myPhrase;
   updateQR(myPhrase);
   initPeer();
@@ -1274,17 +1277,41 @@ importNotesBtn.addEventListener('click', () => {
       try {
         const imported = JSON.parse(e.target.result);
         if (!Array.isArray(imported)) throw new Error('Invalid');
+        let added = 0;
+        let skipped = 0;
         for (const n of imported) {
           if (!n.title) continue;
+          // Dedup by sync_id when available, so re-imports and
+          // cross-device imports don't create duplicates.
+          if (n.sync_id && notes.some(local => local.sync_id === n.sync_id)) {
+            skipped++;
+            continue;
+          }
           await api('POST', '/api/notes', {
             title: n.title, content: n.content || '',
             color: /^#[0-9a-fA-F]{6}$/.test(n.color) ? n.color : '#ffffff',
             remind_at: n.remind_at || null,
             done: n.done || 0,
+            sync_id: n.sync_id || undefined,
           });
+          // Broadcast the new note to peers so they stay in sync.
+          if (n.sync_id) {
+            syncSend('note-created', {
+              note: {
+                sync_id: n.sync_id,
+                title: n.title,
+                content: n.content || '',
+                color: /^#[0-9a-fA-F]{6}$/.test(n.color) ? n.color : '#ffffff',
+                remind_at: n.remind_at || null,
+                done: n.done || 0,
+                updated_at: new Date().toISOString(),
+              },
+            });
+          }
+          added++;
         }
         await loadNotes();
-        toast(`Imported ${imported.length} notes`);
+        toast(`Imported ${added} note${added !== 1 ? 's' : ''}${skipped ? ` (${skipped} duplicate${skipped !== 1 ? 's' : ''} skipped)` : ''}`);
       } catch (err) {
         toast('Failed to import. Invalid file');
       }
@@ -1348,9 +1375,13 @@ clearAllNotesBtn.addEventListener('click', async () => {
   if (!confirm('Delete ALL notes? This cannot be undone.')) return;
   if (!confirm('Are you sure? All notes will be permanently deleted.')) return;
   const allNotes = [...notes];
+  // Tell peers first so they tombstone our sync_ids; then clear
+  // local tombstones so a stale note-created can never resurrect.
   for (const n of allNotes) {
+    if (n.sync_id) syncSend('note-deleted', { sync_id: n.sync_id });
     await api('DELETE', `/api/notes/${n.id}`);
   }
+  localStorage.removeItem('minotes_tombstones');
   await loadNotes();
   toast('All notes cleared');
   settingsPanel.classList.remove('open');

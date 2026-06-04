@@ -4,12 +4,16 @@
 import json
 import sqlite3
 import os
+import re
 import smtplib
 import uuid
 from email.message import EmailMessage
 from datetime import datetime, timedelta
 from threading import Thread, Event
 from time import sleep
+
+# RFC-5322-ish loose check, same shape the client uses
+_EMAIL_RE = re.compile(r"^[^\s@]+@[^\s@]+\.[^\s@]+$")
 
 from flask import Flask, request, jsonify, render_template, send_from_directory
 from flask_cors import CORS
@@ -234,7 +238,11 @@ def get_email_config_route():
 @app.route("/api/email/config", methods=["PUT"])
 def set_email_config_route():
     data = request.get_json() or {}
-    email = data.get("email", "")
+    email = (data.get("email") or "").strip()
+    # Server-side validation: empty (disable) or a reasonable email shape.
+    # Length cap to keep the config file sane.
+    if email and (len(email) > 254 or not _EMAIL_RE.match(email)):
+        return jsonify({"ok": False, "error": "invalid email"}), 400
     set_email_config(email)
     return jsonify({"ok": True, "email": email})
 

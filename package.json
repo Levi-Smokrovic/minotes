@@ -1,0 +1,17 @@
+{
+  "name": "minotes-android",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Android wrapper for minotes (Capacitor build)",
+  "scripts": {
+    "sync": "cap sync android",
+    "sync:web": "rm -rf www && cp -R docs www",
+    "build:apk": "npm run sync:web && npm run sync && cd android && ./gradlew assembleDebug"
+  },
+  "dependencies": {
+    "@capacitor/android": "^8.4.0",
+    "@capacitor/cli": "^8.4.0",
+    "@capacitor/core": "^8.4.0",
+    "@capacitor/local-notifications": "^8.2.0"
+  }
+}
