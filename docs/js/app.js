@@ -150,7 +150,7 @@ function loadNotes() {
   scheduleReminders();
 }
 
-function createNote(title, content, color, remind_at, done) {
+function createNote(title, content, color, remind_at, done, sync_id) {
   const note = {
     id: getNextId(),
     title: title || 'Untitled',
@@ -159,6 +159,7 @@ function createNote(title, content, color, remind_at, done) {
     pinned: 0,
     done: done ? 1 : 0,
     remind_at: remind_at || null,
+    sync_id: sync_id || generateSyncId(),
     created_at: nowISO(),
     updated_at: nowISO(),
   };
@@ -312,23 +313,38 @@ function saveNote() {
   const done = doneToggle.checked ? 1 : 0;
 
   if (editingId) {
+    const note = notes.find(n => n.id === editingId);
     updateNote(editingId, { title, content, color, remind_at: remindAtVal, done });
     toast('Note updated ✨');
+    closeModalFn();
+    syncSend('note-updated', {
+      sync_id: note?.sync_id || '',
+      note: { title, content, color, remind_at: remindAtVal, done },
+    });
   } else {
-    createNote(title, content, color, remindAtVal, done);
+    const note = createNote(title, content, color, remindAtVal, done);
     toast('Note created ✨');
+    closeModalFn();
+    syncSend('note-created', {
+      note: {
+        sync_id: note.sync_id,
+        title: note.title, content: note.content,
+        color: note.color, remind_at: note.remind_at,
+        done: note.done,
+      },
+    });
   }
-  closeModalFn();
-  broadcastSync();
 }
 
 function deleteNoteFn() {
   if (!editingId) return;
   if (!confirm('Delete this note?')) return;
+  const note = notes.find(n => n.id === editingId);
+  const deletedSyncId = note?.sync_id || '';
   deleteNote(editingId);
   toast('Note deleted');
   closeModalFn();
-  broadcastSync();
+  syncSend('note-deleted', { sync_id: deletedSyncId });
 }
 
 // ─── Reminder Presets ─────────────────────────────────────────────────
@@ -363,18 +379,9 @@ function scheduleReminders() {
 
 function fireReminder(note) {
   const title = note.title || 'Untitled';
-  toast('Reminder: ' + title);
-
-  // Show notification via SW registration (most reliable)
-  if ('Notification' in window && Notification.permission === 'granted') {
-    navigator.serviceWorker.ready.then(reg => {
-      reg.showNotification('minotes — Reminder', {
-        body: title + (note.content ? '\n' + note.content : ''),
-        icon: './icon-192.svg',
-        tag: 'reminder-' + note.id,
-      });
-    }).catch(e => console.warn('SW notif failed', e));
-  }
+  toast('⏰ ' + title);
+  const body = note.content ? title + '\n' + note.content : title;
+  notify('⏰ Reminder: ' + title, body, 'reminder-' + note.id);
 
   // Clear the reminder
   updateNote(note.id, { remind_at: null });
@@ -437,6 +444,25 @@ closeSyncPanel.addEventListener('click', () => {
 });
 
 // ─── P2P Sync Engine ──────────────────────────────────────────────────
+
+/** Send a typed message to all connected peers. */
+function syncSend(type, payload) {
+  if (!peerConnections.length) return;
+  const msg = { type, sender: myPhrase, timestamp: Date.now(), ...payload };
+  peerConnections.forEach(conn => {
+    if (conn.open) conn.send(msg);
+  });
+}
+
+/** Generate a UUID v4 for use as sync_id. */
+function generateSyncId() {
+  if (crypto.randomUUID) return crypto.randomUUID();
+  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, c => {
+    const r = Math.random() * 16 | 0;
+    return (c === 'x' ? r : (r & 0x3 | 0x8)).toString(16);
+  });
+}
+
 function generatePhrase() {
   const adj = ['cool','calm','wild','bold','keen','pure','safe','fast',
                'warm','rare','neat','nice','slim','soft','fair','glad',
@@ -585,6 +611,12 @@ async function initPeer() {
       updatePeersList();
       if (!peerConnections.length) setSyncStatus('online', 'Connected — ready for sync');
     });
+    conn.on('error', (err) => {
+      console.warn('[SYNC] Connection error:', err);
+      peerConnections = peerConnections.filter(c => c !== conn);
+      updatePeersList();
+      if (!peerConnections.length) setSyncStatus('online', 'Connected — ready for sync');
+    });
   });
 
   peer.on('error', (err) => {
@@ -621,6 +653,17 @@ function handleIncomingConnection(conn) {
     });
   });
   conn.on('data', (data) => handleSyncData(data));
+  conn.on('close', () => {
+    peerConnections = peerConnections.filter(c => c !== conn);
+    updatePeersList();
+    if (!peerConnections.length) setSyncStatus('online', 'Connected — ready for sync');
+  });
+  conn.on('error', (err) => {
+    console.warn('[SYNC] Connection error:', err);
+    peerConnections = peerConnections.filter(c => c !== conn);
+    updatePeersList();
+    if (!peerConnections.length) setSyncStatus('online', 'Connected — ready for sync');
+  });
 }
 
 function connectToPeer(remotePhrase) {
@@ -656,30 +699,68 @@ function connectToPeer(remotePhrase) {
 
 function handleSyncData(data) {
   if (!data || !data.type) return;
-  if (data.type === 'sync-full') {
-    if (data.notes && Array.isArray(data.notes)) {
+  // Skip messages from self to prevent echo loops
+  if (data.sender === myPhrase) return;
+
+  try {
+    if (data.type === 'note-created' && data.note) {
+      const n = data.note;
+      if (!n.sync_id) return;
+      if (notes.some(local => local.sync_id === n.sync_id)) return;
+      createNote(n.title, n.content, /^#[0-9a-fA-F]{6}$/.test(n.color) ? n.color : '#ffffff', n.remind_at || null, n.done || 0, n.sync_id);
+      toast('📥 Note synced from peer');
+    }
+
+    else if (data.type === 'note-updated' && data.note) {
+      const local = notes.find(x => x.sync_id === data.sync_id);
+      if (!local) return;
+      const n = data.note;
+      updateNote(local.id, { title: n.title, content: n.content, color: n.color, remind_at: n.remind_at, done: n.done });
+    }
+
+    else if (data.type === 'note-deleted') {
+      const local = notes.find(x => x.sync_id === data.sync_id);
+      if (!local) return;
+      deleteNote(local.id);
+      toast('📥 Peer deleted a note');
+    }
+
+    else if (data.type === 'note-toggled') {
+      const local = notes.find(x => x.sync_id === data.sync_id);
+      if (!local) return;
+      updateNote(local.id, { done: data.done });
+    }
+
+    else if (data.type === 'sync-full' && data.notes) {
       for (const rn of data.notes) {
-        const match = notes.findIndex(n => n.title === rn.title && n.content === rn.content);
-        if (match === -1) {
-          createNote(rn.title, rn.content, /^#[0-9a-fA-F]{6}$/.test(rn.color) ? rn.color : '#ffffff', rn.remind_at || null, rn.done || 0);
-        } else if (rn.done && !notes[match].done) {
-          // Update done status if peer has it marked done
-          notes[match].done = 1;
-          saveNotes();
+        if (!rn.sync_id) continue;
+        const match = notes.find(n => n.sync_id === rn.sync_id);
+        if (match) {
+          if (match.title !== rn.title || match.content !== rn.content ||
+              match.done !== rn.done || match.color !== rn.color) {
+            updateNote(match.id, {
+              title: rn.title, content: rn.content,
+              color: /^#[0-9a-fA-F]{6}$/.test(rn.color) ? rn.color : '#ffffff',
+              remind_at: rn.remind_at || null, done: rn.done || 0,
+            });
+          }
+        } else {
+          createNote(rn.title, rn.content, /^#[0-9a-fA-F]{6}$/.test(rn.color) ? rn.color : '#ffffff', rn.remind_at || null, rn.done || 0, rn.sync_id);
         }
       }
-      loadNotes();
+      toast('📥 Full sync from peer');
     }
+  } catch (e) {
+    console.warn('[SYNC] Error handling peer data:', e);
   }
 }
 
+/** Periodic full-sync broadcast (kept as fallback). */
 function broadcastSync() {
   if (!peerConnections.length) return;
   const data = { type: 'sync-full', notes, sender: myPhrase, timestamp: Date.now() };
   peerConnections.forEach(c => { if (c.open) c.send(data); });
 }
-
-// ─── Sync UI Events ───────────────────────────────────────────────────
 
 // ─── Sync UI Events ───────────────────────────────────────────────────
 forgetPeersBtn.addEventListener('click', () => {
@@ -752,7 +833,6 @@ function stopScanner() {
   if (html5QrCode) {
     try {
       html5QrCode.stop();
-      html5QrCode.clear();
     } catch (_) {}
     html5QrCode = null;
   }
@@ -798,48 +878,15 @@ connectScannedBtn.addEventListener('click', () => {
 
 // ─── Test Notification ───────────────────────────────────────────────
 testNotifBtn.addEventListener('click', async () => {
-  console.log('[NOTIF] Test notification button clicked');
-  // Ensure permission
-  if (!('Notification' in window)) { console.warn('[NOTIF] Notifications not supported in this browser'); toast('Notifications not supported'); return; }
-  console.log('[NOTIF] Notification.permission:', Notification.permission);
-  if (Notification.permission === 'denied') { console.warn('[NOTIF] Notifications are denied'); toast('Notifications are blocked — enable in browser settings'); return; }
+  if (!('Notification' in window)) { toast('Notifications not supported'); return; }
+  if (Notification.permission === 'denied') { toast('Notifications are blocked — enable in browser settings'); return; }
   if (Notification.permission === 'default') {
-    console.log('[NOTIF] Requesting permission…');
-    const result = await Notification.requestPermission();
-    console.log('[NOTIF] Permission result:', result);
+    const result = await requestNotifPermission();
     if (result !== 'granted') { toast('Permission denied'); return; }
   }
-  toast('Test notification in 5 seconds…');
-  console.log('[NOTIF] Will fire notification in 5s');
-
-  setTimeout(async () => {
-    console.log('[NOTIF] Firing notification now');
-    try {
-      // Try SW registration first (most reliable)
-      console.log('[NOTIF] Trying SW showNotification…');
-      const reg = await navigator.serviceWorker.ready;
-      console.log('[NOTIF] SW ready, scope:', reg.scope);
-      await reg.showNotification('minotes — Test', {
-        body: 'This is a test notification from minotes',
-        icon: './icon-192.svg',
-        tag: 'minotes-test-' + Date.now(),
-      });
-      console.log('[NOTIF] SW showNotification succeeded');
-    } catch (e) {
-      console.warn('[NOTIF] SW showNotification failed:', e.message, e);
-      // Fallback: direct notification
-      try {
-        console.log('[NOTIF] Falling back to new Notification()');
-        const n = new Notification('minotes — Test', {
-          body: 'This is a test notification from minotes',
-          icon: './icon-192.svg',
-        });
-        console.log('[NOTIF] new Notification() returned:', n);
-      } catch (e2) {
-        console.error('[NOTIF] Both notification methods failed', e2);
-        toast('Notification failed — check browser settings');
-      }
-    }
+  toast('🔔 Test notification in 5s…');
+  setTimeout(() => {
+    notify('minotes — Test', 'This is a test notification from minotes', 'minotes-test-' + Date.now());
   }, 5000);
 });
 
@@ -1062,24 +1109,50 @@ function toggleDone(id) {
   const newDone = note.done ? 0 : 1;
   updateNote(id, { done: newDone });
   toast(newDone ? 'Marked as done' : 'Reopened');
-  broadcastSync();
+  syncSend('note-toggled', { sync_id: note.sync_id || '', done: newDone });
 }
 
 // ─── Service Worker ───────────────────────────────────────────────────
 async function registerSW() {
   if (!('serviceWorker' in navigator)) return;
   try {
-    await navigator.serviceWorker.register('./sw.js');
-  } catch (e) { console.warn('SW failed', e); }
+    const reg = await navigator.serviceWorker.register('./sw.js');
+    reg.addEventListener('updatefound', () => {
+      const sw = reg.installing;
+      sw?.addEventListener('statechange', () => {
+        if (sw.state === 'activated') window.location.reload();
+      });
+    });
+    return reg;
+  } catch (e) { console.warn('[SW] Registration failed:', e); }
+}
+
+/** Show a native notification. Tries SW first, falls back to direct. */
+async function notify(title, body, tag) {
+  if (!('Notification' in window) || Notification.permission !== 'granted') return;
+  tag = tag || 'minotes-' + Date.now();
+  const icon = './icon-192.svg';
+  try {
+    const reg = await navigator.serviceWorker.ready;
+    await reg.showNotification(title, { body, icon, tag, data: { url: './' } });
+    console.log('[NOTIF] Shown:', title);
+  } catch (e) {
+    console.warn('[NOTIF] SW path failed, trying direct:', e);
+    try {
+      new Notification(title, { body, icon });
+      console.log('[NOTIF] Direct fallback ok');
+    } catch (e2) {
+      console.warn('[NOTIF] Direct fallback also failed:', e2);
+    }
+  }
 }
 
 async function requestNotifPermission() {
-  if (!('Notification' in window)) return;
+  if (!('Notification' in window)) return 'unsupported';
+  if (Notification.permission === 'granted') return 'granted';
+  if (Notification.permission === 'denied') return 'denied';
   const result = await Notification.requestPermission();
-  notifPrompt.classList.remove('visible');
-  if (result === 'granted') {
-    toast('Notifications enabled');
-  }
+  if (result === 'granted') toast('Notifications enabled ✅');
   return result;
 }
 
@@ -1090,10 +1163,15 @@ function showNotifPromptIfNeeded() {
   notifPrompt.classList.add('visible');
 }
 
-notifEnableBtn.addEventListener('click', () => {
-  requestNotifPermission();
+notifEnableBtn.addEventListener('click', async () => {
   notifPrompt.classList.remove('visible');
-  localStorage.removeItem('minotes_notif_dismissed');
+  const result = await requestNotifPermission();
+  if (result === 'granted') {
+    localStorage.removeItem('minotes_notif_dismissed');
+    notify('minotes', 'Notifications are enabled! 🔔');
+  } else {
+    localStorage.setItem('minotes_notif_dismissed', 'true');
+  }
 });
 notifLaterBtn.addEventListener('click', () => {
   notifPrompt.classList.remove('visible');

@@ -1,59 +1,40 @@
-const CACHE = 'minotes-static-v1';
-const ASSETS = [
-  './',
-  './index.html',
-  './css/style.css',
-  './js/app.js',
-  './manifest.json',
-  './favicon.svg',
-  './icon-192.svg',
-  './icon-512.svg',
-];
+/* ====================================================================
+   minotes — Service Worker (notifications only, no caching)
+   ==================================================================== */
+self.addEventListener('install', () => self.skipWaiting());
 
-self.addEventListener('install', (e) => {
-  console.log('[SW] Install event');
-  e.waitUntil(caches.open(CACHE).then(c => { console.log('[SW] Caching assets'); return c.addAll(ASSETS); }));
-  self.skipWaiting();
-});
+self.addEventListener('activate', (e) => e.waitUntil(clients.claim()));
 
-self.addEventListener('activate', (e) => {
-  console.log('[SW] Activate event');
-  e.waitUntil(clients.claim());
-});
-
-self.addEventListener('fetch', (e) => {
-  e.respondWith(
-    fetch(e.request).catch(() => caches.match(e.request))
-  );
-});
-
+/** Show a notification. Called either via postMessage from client
+ *  or directly via reg.showNotification() from the client page. */
 self.addEventListener('message', (e) => {
-  console.log('[SW] Message received:', e.data?.type);
-  if (e.data?.type === 'show-notification') {
-    console.log('[SW] Showing notification:', e.data.title);
-    self.registration.showNotification(e.data.title || 'minotes', {
-      body: e.data.body || '',
-      icon: './icon-192.svg',
-      tag: 'minotes-reminder',
-    }).then(() => console.log('[SW] Notification shown'));
-  }
+  if (e.data?.type !== 'show-notification') return;
+  const { title, body, tag, icon } = e.data;
+  showNotif(title, body, tag, icon, e.data.url);
 });
 
-// Handle notification click — focus or open the app
+/** Helper: show notification with consistent options. */
+function showNotif(title, body, tag, icon, url) {
+  self.registration.showNotification(title || 'minotes', {
+    body: body || '',
+    icon: icon || './icon-192.svg',
+    tag: tag || 'minotes-notif',
+    data: { url: url || './' },
+  });
+}
+
+/** Focus the app window when user clicks a notification. */
 self.addEventListener('notificationclick', (e) => {
-  console.log('[SW] Notification clicked:', e.notification.tag, e.notification.title);
   e.notification.close();
   const url = e.notification.data?.url || './';
   e.waitUntil(
-    clients.matchAll({ type: 'window', includeUncontrolled: true }).then(clientList => {
-      console.log('[SW] Found clients:', clientList.length);
-      for (const client of clientList) {
-        if (client.url.includes('minotes') && 'focus' in client) {
-          console.log('[SW] Focusing existing client');
-          return client.focus();
-        }
+    clients.matchAll({ type: 'window', includeUncontrolled: true }).then((list) => {
+      for (const c of list) {
+        if (c.url.includes('minotes') && 'focus' in c) return c.focus();
       }
-      console.log('[SW] Opening new window');
+      for (const c of list) {
+        if ('focus' in c) return c.focus();
+      }
       if (clients.openWindow) return clients.openWindow(url);
     })
   );

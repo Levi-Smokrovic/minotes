@@ -5,6 +5,7 @@ import json
 import sqlite3
 import os
 import smtplib
+import uuid
 from email.message import EmailMessage
 from datetime import datetime, timedelta
 from threading import Thread, Event
@@ -61,6 +62,13 @@ init_db()
 with get_db() as db:
     try:
         db.execute("ALTER TABLE notes ADD COLUMN done INTEGER NOT NULL DEFAULT 0")
+    except sqlite3.OperationalError:
+        pass  # already exists
+
+# Migration: add `sync_id` column for P2P sync matching
+with get_db() as db:
+    try:
+        db.execute("ALTER TABLE notes ADD COLUMN sync_id TEXT DEFAULT ''")
     except sqlite3.OperationalError:
         pass  # already exists
 
@@ -177,13 +185,16 @@ def create_note():
     color = data.get("color", "#ffffff")
     remind_at = data.get("remind_at")
     done = data.get("done", 0)
+    sync_id = data.get("sync_id", "")
+    if not sync_id:
+        sync_id = str(uuid.uuid4())
     with get_db() as db:
         cur = db.execute(
-            "INSERT INTO notes (title, content, color, remind_at, done) VALUES (?, ?, ?, ?, ?)",
-            (title, content, color, remind_at, done),
+            "INSERT INTO notes (title, content, color, remind_at, done, sync_id) VALUES (?, ?, ?, ?, ?, ?)",
+            (title, content, color, remind_at, done, sync_id),
         )
         note_id = cur.lastrowid
-    return jsonify({"id": note_id}), 201
+    return jsonify({"id": note_id, "sync_id": sync_id}), 201
 
 @app.route("/api/notes/<int:note_id>", methods=["PUT"])
 def update_note(note_id):

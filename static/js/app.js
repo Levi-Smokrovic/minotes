@@ -270,30 +270,46 @@ async function saveNote() {
   const done = doneToggle.checked ? 1 : 0;
 
   if (editingId) {
+    const note = notes.find(n => n.id === editingId);
     await api('PUT', `/api/notes/${editingId}`, {
       title, content, color, remind_at: remindAtVal, done,
     });
     toast('Note updated ✨');
+    closeModalFn();
+    await loadNotes();
+    syncSend('note-updated', {
+      sync_id: note?.sync_id || '',
+      note: { title, content, color, remind_at: remindAtVal, done },
+    });
   } else {
+    const sync_id = generateSyncId();
     const res = await api('POST', '/api/notes', {
-      title, content, color, remind_at: remindAtVal, done,
+      title, content, color, remind_at: remindAtVal, done, sync_id,
     });
     editingId = res.id;
     toast('Note created ✨');
+    closeModalFn();
+    await loadNotes();
+    syncSend('note-created', {
+      note: {
+        sync_id: res.sync_id || sync_id,
+        title, content, color,
+        remind_at: remindAtVal, done,
+      },
+    });
   }
-  closeModalFn();
-  await loadNotes();
-  broadcastSync();
 }
 
 async function deleteNote() {
   if (!editingId) return;
   if (!confirm('Delete this note?')) return;
+  const note = notes.find(n => n.id === editingId);
+  const deletedSyncId = note?.sync_id || '';
   await api('DELETE', `/api/notes/${editingId}`);
   toast('Note deleted');
   closeModalFn();
   await loadNotes();
-  broadcastSync();
+  syncSend('note-deleted', { sync_id: deletedSyncId });
 }
 
 // ─── Reminder Presets ─────────────────────────────────────────────────
@@ -313,42 +329,10 @@ async function pollReminders() {
   try {
     const events = await api('GET', '/api/reminders/poll');
     if (!events.length) return;
-
-    console.log('[REMINDER] Got events:', JSON.stringify(events));
-
     events.forEach(ev => {
-      toast('Reminder: ' + ev.title);
-
       const body = ev.title + (ev.content ? '\n' + ev.content : '');
-
-      // Desktop notification via SW registration (most reliable)
-      if ('Notification' in window && Notification.permission === 'granted') {
-        console.log('[REMINDER] Sending desktop notification for:', ev.title);
-        navigator.serviceWorker.ready.then(reg => {
-          reg.showNotification('minotes — Reminder', {
-            body,
-            icon: '/static/icon-192.svg',
-            tag: 'reminder-' + ev.id,
-          }).then(() => {
-            console.log('[REMINDER] SW notification sent OK');
-          }).catch(e => {
-            console.warn('[REMINDER] SW notif failed, trying direct:', e.message);
-            try {
-              new Notification('minotes — Reminder', { body, icon: '/static/icon-192.svg' });
-              console.log('[REMINDER] Direct notification sent OK');
-            } catch (e2) {
-              console.error('[REMINDER] Direct notification also failed:', e2);
-            }
-          });
-        }).catch(e => {
-          console.warn('[REMINDER] SW not ready, direct:', e.message);
-          try {
-            new Notification('minotes — Reminder', { body, icon: '/static/icon-192.svg' });
-          } catch (_) {}
-        });
-      } else {
-        console.log('[REMINDER] No Notification permission for reminder popup:', Notification.permission);
-      }
+      notify('⏰ Reminder: ' + ev.title, body, 'reminder-' + ev.id);
+      toast('⏰ ' + ev.title);
     });
     updateReminderPanel();
     await loadNotes();
@@ -452,6 +436,15 @@ closeSyncPanel.addEventListener('click', () => {
 
 // ─── P2P Sync Engine ──────────────────────────────────────────────────
 
+/** Send a typed message to all connected peers. */
+function syncSend(type, payload) {
+  if (!peerConnections.length) return;
+  const msg = { type, sender: myPhrase, timestamp: Date.now(), ...payload };
+  peerConnections.forEach(conn => {
+    if (conn.open) conn.send(msg);
+  });
+}
+
 // Generate a random phrase (3 words + 4 digits)
 function generatePhrase() {
   const adj = ['cool', 'calm', 'wild', 'bold', 'keen', 'pure', 'safe', 'fast',
@@ -474,6 +467,15 @@ function getOrCreatePhrase() {
   return myPhrase;
 }
 
+/** Generate a UUID v4 for use as sync_id. */
+function generateSyncId() {
+  if (crypto.randomUUID) return crypto.randomUUID();
+  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, c => {
+    const r = Math.random() * 16 | 0;
+    return (c === 'x' ? r : (r & 0x3 | 0x8)).toString(16);
+  });
+}
+
 async function initSyncUI() {
   const phrase = getOrCreatePhrase();
   myPhraseInput.value = phrase;
@@ -482,8 +484,8 @@ async function initSyncUI() {
 
 function updateQR(text) {
   qrContainer.innerHTML = '';
-  if (!text) {
-    qrContainer.innerHTML = '<div class="qr-placeholder">Generate a phrase above to show QR</div>';
+  if (!text || typeof QRCode === 'undefined') {
+    qrContainer.innerHTML = '<div class="qr-placeholder">' + (text ? 'Loading…' : 'Generate a phrase above to show QR') + '</div>';
     return;
   }
   qrCodeInstance = new QRCode(qrContainer, {
@@ -609,6 +611,12 @@ async function initPeer() {
       updatePeersList();
       if (!peerConnections.length) setSyncStatus('online', 'Connected — ready for sync');
     });
+    conn.on('error', (err) => {
+      console.warn('[SYNC] Connection error:', err);
+      peerConnections = peerConnections.filter(c => c !== conn);
+      updatePeersList();
+      if (!peerConnections.length) setSyncStatus('online', 'Connected — ready for sync');
+    });
   });
 
   peer.on('error', (err) => {
@@ -647,6 +655,17 @@ function handleIncomingConnection(conn) {
     });
   });
   conn.on('data', (data) => handleSyncData(data, conn));
+  conn.on('close', () => {
+    peerConnections = peerConnections.filter(c => c !== conn);
+    updatePeersList();
+    if (!peerConnections.length) setSyncStatus('online', 'Connected — ready for sync');
+  });
+  conn.on('error', (err) => {
+    console.warn('[SYNC] Connection error:', err);
+    peerConnections = peerConnections.filter(c => c !== conn);
+    updatePeersList();
+    if (!peerConnections.length) setSyncStatus('online', 'Connected — ready for sync');
+  });
 }
 
 function connectToPeer(remotePhrase) {
@@ -688,29 +707,93 @@ function connectToPeer(remotePhrase) {
 
 async function handleSyncData(data, conn) {
   if (!data || !data.type) return;
+  // Skip messages from self to prevent echo loops
+  if (data.sender === myPhrase) return;
 
-  if (data.type === 'sync-full') {
-    // Merge notes: add unique notes, update done status
-    if (data.notes && Array.isArray(data.notes)) {
+  try {
+    if (data.type === 'note-created' && data.note) {
+      const n = data.note;
+      if (!n.sync_id) return;
+      // Check if we already have this note
+      if (notes.some(local => local.sync_id === n.sync_id)) return;
+      await api('POST', '/api/notes', {
+        title: n.title || 'Untitled',
+        content: n.content || '',
+        color: /^#[0-9a-fA-F]{6}$/.test(n.color) ? n.color : '#ffffff',
+        remind_at: n.remind_at || null,
+        done: n.done || 0,
+        sync_id: n.sync_id,
+      });
+      toast('📥 Note synced from peer');
+      await loadNotes();
+    }
+
+    else if (data.type === 'note-updated' && data.note) {
+      const n = data.note;
+      const local = notes.find(x => x.sync_id === data.sync_id);
+      if (!local) return;
+      await api('PUT', `/api/notes/${local.id}`, {
+        title: n.title, content: n.content,
+        color: n.color, remind_at: n.remind_at,
+        done: n.done,
+      });
+      await loadNotes();
+    }
+
+    else if (data.type === 'note-deleted') {
+      const local = notes.find(x => x.sync_id === data.sync_id);
+      if (!local) return;
+      await api('DELETE', `/api/notes/${local.id}`);
+      toast('📥 Peer deleted a note');
+      await loadNotes();
+    }
+
+    else if (data.type === 'note-toggled') {
+      const local = notes.find(x => x.sync_id === data.sync_id);
+      if (!local) return;
+      await api('PUT', `/api/notes/${local.id}`, { done: data.done });
+      await loadNotes();
+    }
+
+    else if (data.type === 'sync-full' && data.notes) {
+      // Full-sync: merge all notes from peer (used on initial connect)
       for (const remoteNote of data.notes) {
-        const match = notes.findIndex(n =>
-          n.title === remoteNote.title && n.content === remoteNote.content
-        );
-        if (match === -1) {
+        if (!remoteNote.sync_id) continue;
+        const match = notes.find(n => n.sync_id === remoteNote.sync_id);
+        if (match) {
+          // Update if any field differs
+          if (match.title !== remoteNote.title ||
+              match.content !== remoteNote.content ||
+              match.done !== remoteNote.done ||
+              match.color !== remoteNote.color) {
+            await api('PUT', `/api/notes/${match.id}`, {
+              title: remoteNote.title || 'Untitled',
+              content: remoteNote.content || '',
+              color: /^#[0-9a-fA-F]{6}$/.test(remoteNote.color) ? remoteNote.color : '#ffffff',
+              remind_at: remoteNote.remind_at || null,
+              done: remoteNote.done || 0,
+            });
+          }
+        } else {
           await api('POST', '/api/notes', {
             title: remoteNote.title || 'Untitled',
             content: remoteNote.content || '',
             color: /^#[0-9a-fA-F]{6}$/.test(remoteNote.color) ? remoteNote.color : '#ffffff',
             remind_at: remoteNote.remind_at || null,
             done: remoteNote.done || 0,
+            sync_id: remoteNote.sync_id,
           });
         }
       }
+      toast('📥 Full sync from peer');
       await loadNotes();
     }
+  } catch (e) {
+    console.warn('[SYNC] Error handling peer data:', e);
   }
 }
 
+/** Periodic full-sync broadcast (kept as fallback). */
 function broadcastSync() {
   if (!peerConnections.length) return;
   const data = {
@@ -803,7 +886,6 @@ function stopScanner() {
   if (html5QrCode) {
     try {
       html5QrCode.stop();
-      html5QrCode.clear();
     } catch (_) {}
     html5QrCode = null;
   }
@@ -839,81 +921,71 @@ connectScannedBtn.addEventListener('click', () => {
 
 // ─── Test Notification ───────────────────────────────────────────────
 testNotifBtn.addEventListener('click', async () => {
-  console.log('[NOTIF] Test notification button clicked');
   // Ensure permission
-  if (!('Notification' in window)) { console.warn('[NOTIF] Notifications not supported in this browser'); toast('Notifications not supported'); return; }
-  console.log('[NOTIF] Notification.permission:', Notification.permission);
-  if (Notification.permission === 'denied') { console.warn('[NOTIF] Notifications are denied'); toast('Notifications are blocked — enable in browser settings'); return; }
+  if (!('Notification' in window)) { toast('Notifications not supported'); return; }
+  if (Notification.permission === 'denied') { toast('Notifications are blocked — enable in browser settings'); return; }
   if (Notification.permission === 'default') {
-    console.log('[NOTIF] Requesting permission…');
-    const result = await Notification.requestPermission();
-    console.log('[NOTIF] Permission result:', result);
+    const result = await requestNotifPermission();
     if (result !== 'granted') { toast('Permission denied'); return; }
   }
-  toast('Test notification in 5 seconds…');
-  console.log('[NOTIF] Will fire notification in 5s');
-
-  setTimeout(async () => {
-    console.log('[NOTIF] Firing notification now');
-    try {
-      // Try SW registration first (most reliable)
-      console.log('[NOTIF] Trying SW showNotification…');
-      const reg = await navigator.serviceWorker.ready;
-      console.log('[NOTIF] SW ready, scope:', reg.scope);
-      await reg.showNotification('minotes — Test', {
-        body: 'This is a test notification from minotes',
-        icon: '/static/icon-192.svg',
-        tag: 'minotes-test-' + Date.now(),
-      });
-      console.log('[NOTIF] SW showNotification succeeded');
-    } catch (e) {
-      console.warn('[NOTIF] SW showNotification failed:', e.message, e);
-      // Fallback: direct notification
-      try {
-        console.log('[NOTIF] Falling back to new Notification()');
-        const n = new Notification('minotes — Test', {
-          body: 'This is a test notification from minotes',
-          icon: '/static/icon-192.svg',
-        });
-        console.log('[NOTIF] new Notification() returned:', n);
-      } catch (e2) {
-        console.error('[NOTIF] Both notification methods failed', e2);
-        toast('Notification failed — check browser settings');
-      }
-    }
+  toast('🔔 Test notification in 5s…');
+  setTimeout(() => {
+    notify('minotes — Test', 'This is a test notification from minotes', 'minotes-test-' + Date.now());
   }, 5000);
 });
 
-// ─── Service Worker & Push ───────────────────────────────────────────
+// ─── Service Worker ───────────────────────────────────────────────────
+/** Register the SW (only handles notifications, no caching). */
 async function registerSW() {
-  if (!('serviceWorker' in navigator)) { console.warn('[SW] Service workers not supported'); return; }
+  if (!('serviceWorker' in navigator)) return;
   try {
     const reg = await navigator.serviceWorker.register('/sw.js');
-    console.log('[SW] Registered successfully, scope:', reg.scope);
-
-    // Check if there's already a subscription
-    const sub = await reg.pushManager.getSubscription();
-    console.log('[SW] Existing push subscription:', sub);
-
-    // Listen for updates
+    console.log('[SW] Registered, scope:', reg.scope);
+    // On update, reload so the new SW takes over immediately
     reg.addEventListener('updatefound', () => {
-      console.log('[SW] Update found, new SW installing');
+      const sw = reg.installing;
+      sw?.addEventListener('statechange', () => {
+        if (sw.state === 'activated') window.location.reload();
+      });
     });
+    return reg;
   } catch (e) {
-    console.warn('[SW] Registration failed:', e.message, e);
+    console.warn('[SW] Registration failed:', e);
   }
 }
 
-async function requestNotifPermission() {
-  if (!('Notification' in window)) return;
-  const result = await Notification.requestPermission();
-  notifPrompt.classList.remove('visible');
-  if (result === 'granted') {
-    toast('Notifications enabled');
+// ─── Notifications ────────────────────────────────────────────────────
+/** Show a native notification. Tries SW first, falls back to direct. */
+async function notify(title, body, tag) {
+  if (!('Notification' in window) || Notification.permission !== 'granted') return;
+  tag = tag || 'minotes-' + Date.now();
+  const icon = '/static/icon-192.svg';
+  try {
+    const reg = await navigator.serviceWorker.ready;
+    await reg.showNotification(title, { body, icon, tag, data: { url: '/' } });
+    console.log('[NOTIF] Shown:', title);
+  } catch (e) {
+    console.warn('[NOTIF] SW path failed, trying direct:', e);
+    try {
+      new Notification(title, { body, icon });
+      console.log('[NOTIF] Direct fallback ok');
+    } catch (e2) {
+      console.warn('[NOTIF] Direct fallback also failed:', e2);
+    }
   }
+}
+
+/** Ask for notification permission (must be called from user gesture). */
+async function requestNotifPermission() {
+  if (!('Notification' in window)) return 'unsupported';
+  if (Notification.permission === 'granted') return 'granted';
+  if (Notification.permission === 'denied') return 'denied';
+  const result = await Notification.requestPermission();
+  if (result === 'granted') toast('Notifications enabled ✅');
   return result;
 }
 
+/** Show the in-app notification prompt if permission hasn't been asked yet. */
 function showNotifPromptIfNeeded() {
   if (!('Notification' in window)) return;
   if (Notification.permission !== 'default') return;
@@ -921,11 +993,17 @@ function showNotifPromptIfNeeded() {
   notifPrompt.classList.add('visible');
 }
 
-// Notif button handlers
-notifEnableBtn.addEventListener('click', () => {
-  requestNotifPermission();
+// Notification prompt button handlers
+notifEnableBtn.addEventListener('click', async () => {
   notifPrompt.classList.remove('visible');
-  localStorage.removeItem('minotes_notif_dismissed');
+  const result = await requestNotifPermission();
+  if (result === 'granted') {
+    localStorage.removeItem('minotes_notif_dismissed');
+    // Send a welcome notification to confirm it works
+    notify('minotes', 'Notifications are enabled! 🔔');
+  } else {
+    localStorage.setItem('minotes_notif_dismissed', 'true');
+  }
 });
 notifLaterBtn.addEventListener('click', () => {
   notifPrompt.classList.remove('visible');
@@ -1146,13 +1224,11 @@ async function toggleDone(id) {
   const note = notes.find(n => n.id === id);
   if (!note) return;
   const newDone = note.done ? 0 : 1;
-  console.log('[TODO] Toggle note', id, 'done ->', newDone, 'title:', note.title);
   await api('PUT', `/api/notes/${id}`, { done: newDone });
   await loadNotes();
   const msg = newDone ? 'Marked as done' : 'Reopened';
   toast(msg);
-  console.log('[TODO]', msg, '- note:', note.title);
-  broadcastSync();
+  syncSend('note-toggled', { sync_id: note.sync_id || '', done: newDone });
 }
 
 // ─── Event listeners ──────────────────────────────────────────────────
