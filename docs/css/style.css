@@ -364,7 +364,7 @@ body {
 }
 .color-dot.active {
   border-color: var(--accent);
-  box-shadow: 0 0 0 2px #fff, 0 0 0 4px var(--accent);
+  box-shadow: 0 0 0 2px var(--bg), 0 0 0 4px var(--accent);
 }
 
 .modal-title {
@@ -1019,6 +1019,7 @@ input[type="datetime-local"]::-webkit-datetime-edit-minute-field:focus {
 /* Dark overlay on custom bg colors in dark mode — keeps the hue, readable text */
 [data-theme="dark"] .note-card[style*="background"],
 [data-theme="dark"] .modal-content[style*="background"] {
+  position: relative;
   isolation: isolate;
 }
 [data-theme="dark"] .note-card[style*="background"]::before,
@@ -1028,8 +1029,13 @@ input[type="datetime-local"]::-webkit-datetime-edit-minute-field:focus {
   inset: 0;
   border-radius: inherit;
   background: rgba(0,0,0,.55);
-  z-index: -1;
   pointer-events: none;
+  z-index: 0;
+}
+[data-theme="dark"] .note-card[style*="background"] > *,
+[data-theme="dark"] .modal-content[style*="background"] > * {
+  position: relative;
+  z-index: 1;
 }
 
 [data-theme="dark"] .sync-dot.online { background: #4ade80; }
