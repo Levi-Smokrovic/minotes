@@ -331,7 +331,7 @@ async function pollReminders() {
     if (!events.length) return;
     events.forEach(ev => {
       const body = ev.title + (ev.content ? '\n' + ev.content : '');
-      notify('⏰ Reminder: ' + ev.title, body, 'reminder-' + ev.id);
+      Notif.send('⏰ Reminder: ' + ev.title, body, 'reminder-' + ev.id);
       toast('⏰ ' + ev.title);
     });
     updateReminderPanel();
@@ -919,21 +919,6 @@ connectScannedBtn.addEventListener('click', () => {
   scannerResult.style.display = 'none';
 });
 
-// ─── Test Notification ───────────────────────────────────────────────
-testNotifBtn.addEventListener('click', async () => {
-  // Ensure permission
-  if (!('Notification' in window)) { toast('Notifications not supported'); return; }
-  if (Notification.permission === 'denied') { toast('Notifications are blocked — enable in browser settings'); return; }
-  if (Notification.permission === 'default') {
-    const result = await requestNotifPermission();
-    if (result !== 'granted') { toast('Permission denied'); return; }
-  }
-  toast('🔔 Test notification in 5s…');
-  setTimeout(() => {
-    notify('minotes — Test', 'This is a test notification from minotes', 'minotes-test-' + Date.now());
-  }, 5000);
-});
-
 // ─── Service Worker ───────────────────────────────────────────────────
 /** Register the SW (only handles notifications, no caching). */
 async function registerSW() {
@@ -954,53 +939,93 @@ async function registerSW() {
   }
 }
 
-// ─── Notifications ────────────────────────────────────────────────────
-/** Show a native notification. Tries SW first, falls back to direct. */
-async function notify(title, body, tag) {
-  if (!('Notification' in window) || Notification.permission !== 'granted') return;
-  tag = tag || 'minotes-' + Date.now();
-  const icon = '/static/icon-192.svg';
-  try {
-    const reg = await navigator.serviceWorker.ready;
-    await reg.showNotification(title, { body, icon, tag, data: { url: '/' } });
-    console.log('[NOTIF] Shown:', title);
-  } catch (e) {
-    console.warn('[NOTIF] SW path failed, trying direct:', e);
+// ─── Notification Manager ────────────────────────────────────────────
+// Unified system: postMessage to SW → reg.showNotification → new Notification()
+const Notif = {
+  get permission() {
+    if (!('Notification' in window)) return 'unsupported';
+    return Notification.permission;
+  },
+
+  /** Request permission (call from user gesture). */
+  async request() {
+    if (!('Notification' in window)) return 'unsupported';
+    if (Notification.permission !== 'default') return Notification.permission;
+    const result = await Notification.requestPermission();
+    if (result === 'granted') toast('Notifications enabled ✅');
+    return result;
+  },
+
+  /** Show a notification. Returns true if shown. */
+  async send(title, body, tag) {
+    if (this.permission !== 'granted') return false;
+    tag = tag || 'notif-' + Date.now();
+    const icon = '/static/icon-192.svg';
+
+    // Path 1: postMessage to active SW
+    try {
+      const reg = await navigator.serviceWorker.ready;
+      if (reg?.active) {
+        reg.active.postMessage({ type: 'NOTIFY', title, body, tag, icon, url: '/' });
+        console.log('[NOTIF] Sent via SW:', title);
+        return true;
+      }
+    } catch (e) {
+      console.warn('[NOTIF] postMessage failed:', e);
+    }
+
+    // Path 2: reg.showNotification
+    try {
+      const reg = await navigator.serviceWorker.ready;
+      await reg.showNotification(title, { body, icon, tag, data: { url: '/' } });
+      console.log('[NOTIF] Shown via reg:', title);
+      return true;
+    } catch (e) {
+      console.warn('[NOTIF] reg.showNotification failed:', e);
+    }
+
+    // Path 3: Direct Notification constructor
     try {
       new Notification(title, { body, icon });
-      console.log('[NOTIF] Direct fallback ok');
-    } catch (e2) {
-      console.warn('[NOTIF] Direct fallback also failed:', e2);
+      console.log('[NOTIF] Shown via direct API:', title);
+      return true;
+    } catch (e) {
+      console.warn('[NOTIF] All notification paths failed:', e);
+      return false;
     }
-  }
-}
+  },
 
-/** Ask for notification permission (must be called from user gesture). */
-async function requestNotifPermission() {
-  if (!('Notification' in window)) return 'unsupported';
-  if (Notification.permission === 'granted') return 'granted';
-  if (Notification.permission === 'denied') return 'denied';
-  const result = await Notification.requestPermission();
-  if (result === 'granted') toast('Notifications enabled ✅');
-  return result;
-}
+  /** Test notification. Requests permission if needed. */
+  async test() {
+    if (this.permission === 'unsupported') { toast('Notifications not supported'); return; }
+    if (this.permission === 'denied') { toast('Notifications are blocked — enable in browser settings'); return; }
+    if (this.permission === 'default') {
+      const result = await this.request();
+      if (result !== 'granted') { toast('Permission denied'); return; }
+    }
+    toast('🔔 Test notification incoming…');
+    await this.send(
+      'minotes — Test',
+      'This is a test notification from minotes',
+      'test-' + Date.now()
+    );
+  },
 
-/** Show the in-app notification prompt if permission hasn't been asked yet. */
-function showNotifPromptIfNeeded() {
-  if (!('Notification' in window)) return;
-  if (Notification.permission !== 'default') return;
-  if (localStorage.getItem('minotes_notif_dismissed')) return;
-  notifPrompt.classList.add('visible');
-}
+  /** Show the in-app permission prompt if not yet decided. */
+  showPromptIfNeeded() {
+    if (this.permission !== 'default') return;
+    if (localStorage.getItem('minotes_notif_dismissed')) return;
+    notifPrompt.classList.add('visible');
+  },
+};
 
-// Notification prompt button handlers
+// Notification prompt — Enable/Later
 notifEnableBtn.addEventListener('click', async () => {
   notifPrompt.classList.remove('visible');
-  const result = await requestNotifPermission();
+  const result = await Notif.request();
   if (result === 'granted') {
     localStorage.removeItem('minotes_notif_dismissed');
-    // Send a welcome notification to confirm it works
-    notify('minotes', 'Notifications are enabled! 🔔');
+    Notif.send('minotes', 'Notifications are enabled! 🔔');
   } else {
     localStorage.setItem('minotes_notif_dismissed', 'true');
   }
@@ -1009,6 +1034,9 @@ notifLaterBtn.addEventListener('click', () => {
   notifPrompt.classList.remove('visible');
   localStorage.setItem('minotes_notif_dismissed', 'true');
 });
+
+// Test notification button in settings
+testNotifBtn.addEventListener('click', () => Notif.test());
 
 // ─── Settings Panel ───────────────────────────────────────────────────
 toggleSettingsBtn.addEventListener('click', () => {
@@ -1273,7 +1301,7 @@ async function init() {
   await registerSW();
   initDarkMode();
   initIntroSlideshow();
-  showNotifPromptIfNeeded();
+  Notif.showPromptIfNeeded();
   await loadNotes();
   updateReminderPanel();
   loadEmailConfig();
