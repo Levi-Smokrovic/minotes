@@ -277,9 +277,14 @@ async function saveNote() {
     toast('Note updated');
     closeModalFn();
     await loadNotes();
+    const fresh = notes.find(n => n.id === editingId);
     syncSend('note-updated', {
-      sync_id: note?.sync_id || '',
-      note: { title, content, color, remind_at: remindAtVal, done },
+      sync_id: note?.sync_id || fresh?.sync_id || '',
+      note: {
+        sync_id: note?.sync_id || fresh?.sync_id || '',
+        title, content, color, remind_at: remindAtVal, done,
+        updated_at: fresh?.updated_at || new Date().toISOString(),
+      },
     });
   } else {
     const sync_id = generateSyncId();
@@ -290,11 +295,13 @@ async function saveNote() {
     toast('Note created');
     closeModalFn();
     await loadNotes();
+    const fresh = notes.find(n => n.id === editingId);
     syncSend('note-created', {
       note: {
-        sync_id: res.sync_id || sync_id,
+        sync_id: res.sync_id || fresh?.sync_id || sync_id,
         title, content, color,
         remind_at: remindAtVal, done,
+        updated_at: fresh?.updated_at || new Date().toISOString(),
       },
     });
   }
@@ -435,13 +442,25 @@ closeSyncPanel.addEventListener('click', () => {
 });
 
 // ─── P2P Sync Engine ──────────────────────────────────────────────────
+// Per-phrase retry tracking for failed outbound connects.
+const connectRetryCount = new Map();
+const CONNECT_RETRY_DELAYS = [1000, 3000, 6000, 15000, 30000, 60000];
 
-/** Send a typed message to all connected peers. */
+/** Send a typed message to all connected peers (and queue for not-yet-open). */
 function syncSend(type, payload) {
-  if (!peerConnections.length) return;
   const msg = { type, sender: myPhrase, timestamp: Date.now(), ...payload };
+  if (!peerConnections.length) {
+    if (type !== 'sync-full') pendingOutbound.push(msg);
+    return;
+  }
+  let sentAny = false;
   peerConnections.forEach(conn => {
-    if (conn.open) conn.send(msg);
+    if (conn.open) {
+      try { conn.send(msg); sentAny = true; }
+      catch (e) { console.warn('[SYNC] send failed, queued', e); pendingOutbound.push(msg); }
+    } else {
+      pendingOutbound.push(msg);
+    }
   });
 }
 
@@ -544,6 +563,7 @@ function getStoredPeers() {
   catch { return []; }
 }
 function saveStoredPeer(phrase) {
+  if (!phrase) return;
   const peers = getStoredPeers();
   if (!peers.includes(phrase)) {
     peers.push(phrase);
@@ -558,8 +578,43 @@ function forgetAllPeers() {
   localStorage.removeItem('minotes_peers');
   peerConnections.forEach(c => c.close());
   peerConnections = [];
+  pendingOutbound = [];
   updatePeersList();
   setSyncStatus('online', 'Connected, ready for sync');
+}
+
+// Tombstones: keep recently-deleted sync_ids so a late-arriving
+// note-created for the same id is dropped instead of resurrecting.
+function getTombstones() {
+  try { return JSON.parse(localStorage.getItem('minotes_tombstones') || '[]'); }
+  catch { return []; }
+}
+function addTombstone(syncId) {
+  if (!syncId) return;
+  const list = getTombstones().filter(t => t.sync_id !== syncId);
+  list.push({ sync_id: syncId, at: Date.now() });
+  // Keep last 200 tombstones; drop anything older than 7 days
+  const cutoff = Date.now() - 7 * 24 * 60 * 60 * 1000;
+  const trimmed = list.filter(t => t.at > cutoff).slice(-200);
+  localStorage.setItem('minotes_tombstones', JSON.stringify(trimmed));
+}
+function isTombstoned(syncId) {
+  if (!syncId) return false;
+  return getTombstones().some(t => t.sync_id === syncId);
+}
+
+// Pending messages waiting for a connection to open.
+// Prevents lost updates if the user creates/edits/deletes a note
+// before the WebRTC handshake completes.
+let pendingOutbound = [];
+
+function flushPending(conn) {
+  if (!conn || !conn.open || !pendingOutbound.length) return;
+  const queue = pendingOutbound.slice();
+  pendingOutbound = [];
+  queue.forEach(msg => {
+    try { conn.send(msg); } catch (e) { console.warn('[SYNC] flush failed', e); }
+  });
 }
 
 // ─── PeerJS Sync ──────────────────────────────────────────────────────
@@ -587,11 +642,17 @@ async function initPeer() {
     }
   });
 
+  // Symmetric: when WE receive a connection, remember the sender's
+  // phrase so we can auto-reconnect to THEM after a refresh.
   peer.on('connection', (conn) => {
     conn.on('open', () => {
       peerConnections.push(conn);
       setSyncStatus('online', `Connected (${peerConnections.length} device${peerConnections.length > 1 ? 's' : ''})`);
       updatePeersList();
+      // Save peer's phrase if it announced itself
+      if (conn.metadata && conn.metadata.phrase) {
+        saveStoredPeer(conn.metadata.phrase);
+      }
 
       // Immediately send all our notes to the new peer
       conn.send({
@@ -600,6 +661,7 @@ async function initPeer() {
         sender: myPhrase,
         timestamp: Date.now(),
       });
+      flushPending(conn);
     });
 
     conn.on('data', (data) => {
@@ -619,21 +681,47 @@ async function initPeer() {
     });
   });
 
+  // Server-side disconnect: try to re-establish.
+  peer.on('disconnected', () => {
+    setSyncStatus('connecting', 'Reconnecting to signaling server...');
+    try { peer && peer.reconnect && peer.reconnect(); } catch (e) {}
+  });
+  peer.on('close', () => {
+    setSyncStatus('offline', 'Sync unavailable (offline?)');
+  });
+
   peer.on('error', (err) => {
     if (err.type === 'unavailable-id') {
+      // Another device is using this exact peer ID. Append a random
+      // suffix and try again. Note: this changes OUR peer ID, so any
+      // peer that was reaching us at the old ID will need to re-scan.
+      const oldId = peerId;
       peer.destroy();
       peer = null;
-      // Retry with random suffix - all handlers will be re-attached
       const suffix = Math.random().toString(36).slice(2, 6);
-      const newId = peerId + '-' + suffix;
+      const newId = oldId + '-' + suffix;
       console.log('[SYNC] Peer ID collision, retrying with:', newId);
       peer = new Peer(newId, { debug: 0 });
       peer.on('open', () => setSyncStatus('online', 'Connected, ready for sync'));
       peer.on('connection', handleIncomingConnection);
+      peer.on('disconnected', () => {
+        try { peer && peer.reconnect && peer.reconnect(); } catch (e) {}
+      });
       peer.on('error', (e) => {
-        setSyncStatus('offline', 'Sync unavailable (offline?)');
+        if (e.type === 'unavailable-id') {
+          // Still colliding - bail and let user regenerate manually
+          setSyncStatus('offline', 'Sync ID collision. Regenerate phrase.');
+        } else {
+          setSyncStatus('offline', 'Sync unavailable (offline?)');
+        }
         console.warn('PeerJS error:', e.type);
       });
+      return;
+    }
+    if (err.type === 'network' || err.type === 'server-error' ||
+        err.type === 'socket-error' || err.type === 'socket-closed') {
+      // Transient: keep peer, status will recover on reconnect.
+      setSyncStatus('connecting', 'Reconnecting...');
       return;
     }
     setSyncStatus('offline', 'Sync unavailable (offline?)');
@@ -645,7 +733,9 @@ function handleIncomingConnection(conn) {
   conn.on('open', () => {
     peerConnections.push(conn);
     updatePeersList();
-
+    if (conn.metadata && conn.metadata.phrase) {
+      saveStoredPeer(conn.metadata.phrase);
+    }
     // Send our notes to the new peer
     conn.send({
       type: 'sync-full',
@@ -653,6 +743,7 @@ function handleIncomingConnection(conn) {
       sender: myPhrase,
       timestamp: Date.now(),
     });
+    flushPending(conn);
   });
   conn.on('data', (data) => handleSyncData(data, conn));
   conn.on('close', () => {
@@ -669,18 +760,27 @@ function handleIncomingConnection(conn) {
 }
 
 function connectToPeer(remotePhrase) {
-  if (!peer) return;
+  if (!peer || !remotePhrase) return;
   const remoteId = 'minotes-' + remotePhrase.replace(/[^a-z0-9-]/gi, '').toLowerCase();
-  const conn = peer.connect(remoteId, { reliable: true });
+  if (remoteId === 'minotes-' + (myPhrase || '').replace(/[^a-z0-9-]/gi, '').toLowerCase()) {
+    return; // don't connect to ourselves
+  }
+  const conn = peer.connect(remoteId, {
+    reliable: true,
+    metadata: { phrase: myPhrase }, // tell the other side who we are
+  });
 
   // Save for auto-reconnect after refresh
   saveStoredPeer(remotePhrase);
 
+  let opened = false;
+  let retried = false;
+
   conn.on('open', () => {
+    opened = true;
     peerConnections.push(conn);
     setSyncStatus('online', `Connected (${peerConnections.length} device${peerConnections.length > 1 ? 's' : ''})`);
     updatePeersList();
-
     // Send all our notes on connect
     conn.send({
       type: 'sync-full',
@@ -688,8 +788,7 @@ function connectToPeer(remotePhrase) {
       sender: myPhrase,
       timestamp: Date.now(),
     });
-
-    setSyncStatus('online', `Synced with peer`);
+    flushPending(conn);
   });
 
   conn.on('data', (data) => handleSyncData(data, conn));
@@ -701,7 +800,41 @@ function connectToPeer(remotePhrase) {
   });
 
   conn.on('error', () => {
+    // Single retry after a short delay (peer might still be registering)
+    if (!opened && !retried) {
+      retried = true;
+      setTimeout(() => {
+        if (!peer || peer.destroyed) return;
+        const retry = peer.connect(remoteId, {
+          reliable: true,
+          metadata: { phrase: myPhrase },
+        });
+        retry.on('open', () => {
+          peerConnections.push(retry);
+          updatePeersList();
+          retry.send({
+            type: 'sync-full',
+            notes: notes,
+            sender: myPhrase,
+            timestamp: Date.now(),
+          });
+          flushPending(retry);
+        });
+        retry.on('data', (data) => handleSyncData(data, retry));
+        retry.on('close', () => {
+          peerConnections = peerConnections.filter(c => c !== retry);
+          updatePeersList();
+          if (!peerConnections.length) setSyncStatus('online', 'Connected, ready for sync');
+        });
+        retry.on('error', () => {
+          toast('Could not connect. Check the phrase');
+          removeStoredPeer(remotePhrase);
+        });
+      }, 1500);
+      return;
+    }
     toast('Could not connect. Check the phrase');
+    removeStoredPeer(remotePhrase);
   });
 }
 
@@ -710,10 +843,14 @@ async function handleSyncData(data, conn) {
   // Skip messages from self to prevent echo loops
   if (data.sender === myPhrase) return;
 
+  // Remember the sender so the receiver can auto-reconnect later.
+  if (data.sender) saveStoredPeer(data.sender);
+
   try {
     if (data.type === 'note-created' && data.note) {
       const n = data.note;
       if (!n.sync_id) return;
+      if (isTombstoned(n.sync_id)) return; // we deleted it after a refresh - keep it deleted
       // Check if we already have this note
       if (notes.some(local => local.sync_id === n.sync_id)) return;
       await api('POST', '/api/notes', {
@@ -730,8 +867,27 @@ async function handleSyncData(data, conn) {
 
     else if (data.type === 'note-updated' && data.note) {
       const n = data.note;
-      const local = notes.find(x => x.sync_id === data.sync_id);
-      if (!local) return;
+      let local = notes.find(x => x.sync_id === data.sync_id);
+      if (!local) {
+        // Don't have it yet (e.g. note-created was missed). Create it
+        // from the payload so updates aren't lost.
+        if (!n.sync_id || isTombstoned(n.sync_id)) return;
+        await api('POST', '/api/notes', {
+          title: n.title || 'Untitled',
+          content: n.content || '',
+          color: /^#[0-9a-fA-F]{6}$/.test(n.color) ? n.color : '#ffffff',
+          remind_at: n.remind_at || null,
+          done: n.done || 0,
+          sync_id: n.sync_id,
+        });
+        await loadNotes();
+        toast('Note synced from peer');
+        return;
+      }
+      // Last-write-wins: only overwrite if the remote change is newer
+      const remoteTs = n.updated_at ? new Date(n.updated_at).getTime() : Date.now();
+      const localTs = local.updated_at ? new Date(local.updated_at).getTime() : 0;
+      if (remoteTs < localTs) return;
       await api('PUT', `/api/notes/${local.id}`, {
         title: n.title, content: n.content,
         color: n.color, remind_at: n.remind_at,
@@ -741,7 +897,9 @@ async function handleSyncData(data, conn) {
     }
 
     else if (data.type === 'note-deleted') {
-      const local = notes.find(x => x.sync_id === data.sync_id);
+      const syncId = data.sync_id;
+      addTombstone(syncId); // remember so a late note-created can't resurrect it
+      const local = notes.find(x => x.sync_id === syncId);
       if (!local) return;
       await api('DELETE', `/api/notes/${local.id}`);
       toast('Peer deleted a note');
@@ -749,8 +907,23 @@ async function handleSyncData(data, conn) {
     }
 
     else if (data.type === 'note-toggled') {
-      const local = notes.find(x => x.sync_id === data.sync_id);
-      if (!local) return;
+      const n = data.note || {};
+      let local = notes.find(x => x.sync_id === data.sync_id);
+      if (!local) {
+        // Don't have the note yet - create it as already-toggled so the
+        // done state is preserved. Use the payload fields if we have them.
+        if (!data.sync_id || isTombstoned(data.sync_id)) return;
+        await api('POST', '/api/notes', {
+          title: n.title || 'Untitled',
+          content: n.content || '',
+          color: /^#[0-9a-fA-F]{6}$/.test(n.color) ? n.color : '#ffffff',
+          remind_at: n.remind_at || null,
+          done: data.done,
+          sync_id: data.sync_id,
+        });
+        await loadNotes();
+        return;
+      }
       await api('PUT', `/api/notes/${local.id}`, { done: data.done });
       await loadNotes();
     }
@@ -759,13 +932,18 @@ async function handleSyncData(data, conn) {
       // Full-sync: merge all notes from peer (used on initial connect)
       for (const remoteNote of data.notes) {
         if (!remoteNote.sync_id) continue;
+        if (isTombstoned(remoteNote.sync_id)) continue;
         const match = notes.find(n => n.sync_id === remoteNote.sync_id);
         if (match) {
-          // Update if any field differs
+          // Last-write-wins: only overwrite if remote is newer
+          const remoteTs = remoteNote.updated_at ? new Date(remoteNote.updated_at).getTime() : Date.now();
+          const localTs = match.updated_at ? new Date(match.updated_at).getTime() : 0;
+          if (remoteTs < localTs) continue;
           if (match.title !== remoteNote.title ||
               match.content !== remoteNote.content ||
               match.done !== remoteNote.done ||
-              match.color !== remoteNote.color) {
+              match.color !== remoteNote.color ||
+              match.remind_at !== remoteNote.remind_at) {
             await api('PUT', `/api/notes/${match.id}`, {
               title: remoteNote.title || 'Untitled',
               content: remoteNote.content || '',
@@ -1254,9 +1432,22 @@ async function toggleDone(id) {
   const newDone = note.done ? 0 : 1;
   await api('PUT', `/api/notes/${id}`, { done: newDone });
   await loadNotes();
+  const fresh = notes.find(n => n.id === id);
   const msg = newDone ? 'Marked as done' : 'Reopened';
   toast(msg);
-  syncSend('note-toggled', { sync_id: note.sync_id || '', done: newDone });
+  syncSend('note-toggled', {
+    sync_id: note.sync_id || fresh?.sync_id || '',
+    done: newDone,
+    note: {
+      sync_id: note.sync_id || fresh?.sync_id || '',
+      title: note.title,
+      content: note.content,
+      color: note.color,
+      remind_at: note.remind_at,
+      done: newDone,
+      updated_at: fresh?.updated_at || new Date().toISOString(),
+    },
+  });
 }
 
 // ─── Event listeners ──────────────────────────────────────────────────

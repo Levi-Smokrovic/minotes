@@ -315,11 +315,16 @@ function saveNote() {
   if (editingId) {
     const note = notes.find(n => n.id === editingId);
     updateNote(editingId, { title, content, color, remind_at: remindAtVal, done });
+    const fresh = notes.find(n => n.id === editingId);
     toast('Note updated');
     closeModalFn();
     syncSend('note-updated', {
-      sync_id: note?.sync_id || '',
-      note: { title, content, color, remind_at: remindAtVal, done },
+      sync_id: note?.sync_id || fresh?.sync_id || '',
+      note: {
+        sync_id: note?.sync_id || fresh?.sync_id || '',
+        title, content, color, remind_at: remindAtVal, done,
+        updated_at: fresh?.updated_at || new Date().toISOString(),
+      },
     });
   } else {
     const note = createNote(title, content, color, remindAtVal, done);
@@ -331,6 +336,7 @@ function saveNote() {
         title: note.title, content: note.content,
         color: note.color, remind_at: note.remind_at,
         done: note.done,
+        updated_at: note.updated_at || new Date().toISOString(),
       },
     });
   }
@@ -445,12 +451,22 @@ closeSyncPanel.addEventListener('click', () => {
 
 // ─── P2P Sync Engine ──────────────────────────────────────────────────
 
-/** Send a typed message to all connected peers. */
+/** Send a typed message to all connected peers. Messages are queued
+ *  if no peer is connected yet, or for a specific conn that hasn't
+ *  opened; the queue is flushed when a connection opens. */
 function syncSend(type, payload) {
-  if (!peerConnections.length) return;
   const msg = { type, sender: myPhrase, timestamp: Date.now(), ...payload };
+  if (!peerConnections.length) {
+    if (type !== 'sync-full') pendingOutbound.push(msg);
+    return;
+  }
   peerConnections.forEach(conn => {
-    if (conn.open) conn.send(msg);
+    if (conn.open) {
+      try { conn.send(msg); }
+      catch (e) { console.warn('[SYNC] send failed, queued', e); pendingOutbound.push(msg); }
+    } else {
+      pendingOutbound.push(msg);
+    }
   });
 }
 
@@ -547,6 +563,7 @@ function getStoredPeers() {
   catch { return []; }
 }
 function saveStoredPeer(phrase) {
+  if (!phrase) return;
   const peers = getStoredPeers();
   if (!peers.includes(phrase)) {
     peers.push(phrase);
@@ -561,9 +578,43 @@ function forgetAllPeers() {
   localStorage.removeItem('minotes_peers');
   peerConnections.forEach(c => c.close());
   peerConnections = [];
+  pendingOutbound = [];
   updatePeersList();
   setSyncStatus('online', 'Connected, ready for sync');
   toast('Forgot all peers');
+}
+
+// Tombstones: keep recently-deleted sync_ids so a late-arriving
+// note-created for the same id is dropped instead of resurrecting.
+function getTombstones() {
+  try { return JSON.parse(localStorage.getItem('minotes_tombstones') || '[]'); }
+  catch { return []; }
+}
+function addTombstone(syncId) {
+  if (!syncId) return;
+  const list = getTombstones().filter(t => t.sync_id !== syncId);
+  list.push({ sync_id: syncId, at: Date.now() });
+  const cutoff = Date.now() - 7 * 24 * 60 * 60 * 1000;
+  const trimmed = list.filter(t => t.at > cutoff).slice(-200);
+  localStorage.setItem('minotes_tombstones', JSON.stringify(trimmed));
+}
+function isTombstoned(syncId) {
+  if (!syncId) return false;
+  return getTombstones().some(t => t.sync_id === syncId);
+}
+
+// Pending messages waiting for a connection to open.
+// Prevents lost updates if the user creates/edits/deletes a note
+// before the WebRTC handshake completes.
+let pendingOutbound = [];
+
+function flushPending(conn) {
+  if (!conn || !conn.open || !pendingOutbound.length) return;
+  const queue = pendingOutbound.slice();
+  pendingOutbound = [];
+  queue.forEach(msg => {
+    try { conn.send(msg); } catch (e) { console.warn('[SYNC] flush failed', e); }
+  });
 }
 
 // ─── PeerJS Sync ──────────────────────────────────────────────────────
@@ -591,11 +642,17 @@ async function initPeer() {
     }
   });
 
+  // Symmetric: when WE receive a connection, remember the sender's
+  // phrase so we can auto-reconnect to THEM after a refresh.
   peer.on('connection', (conn) => {
     conn.on('open', () => {
       peerConnections.push(conn);
       setSyncStatus('online', `Connected (${peerConnections.length} device${peerConnections.length > 1 ? 's' : ''})`);
       updatePeersList();
+      // Save peer's phrase if it announced itself
+      if (conn.metadata && conn.metadata.phrase) {
+        saveStoredPeer(conn.metadata.phrase);
+      }
 
       // Immediately send all our notes to the new peer
       conn.send({
@@ -604,8 +661,9 @@ async function initPeer() {
         sender: myPhrase,
         timestamp: Date.now(),
       });
+      flushPending(conn);
     });
-    conn.on('data', (data) => handleSyncData(data));
+    conn.on('data', (data) => handleSyncData(data, conn));
     conn.on('close', () => {
       peerConnections = peerConnections.filter(c => c !== conn);
       updatePeersList();
@@ -619,6 +677,15 @@ async function initPeer() {
     });
   });
 
+  // Server-side disconnect: try to re-establish.
+  peer.on('disconnected', () => {
+    setSyncStatus('connecting', 'Reconnecting to signaling server...');
+    try { peer && peer.reconnect && peer.reconnect(); } catch (e) {}
+  });
+  peer.on('close', () => {
+    setSyncStatus('offline', 'Sync unavailable (offline?)');
+  });
+
   peer.on('error', (err) => {
     if (err.type === 'unavailable-id') {
       peer.destroy();
@@ -630,9 +697,21 @@ async function initPeer() {
       peer = new Peer(newId, { debug: 0 });
       peer.on('open', () => setSyncStatus('online', 'Connected, ready for sync'));
       peer.on('connection', handleIncomingConnection);
-      peer.on('error', (e) => {
-        setSyncStatus('offline', 'Sync unavailable (offline?)');
+      peer.on('disconnected', () => {
+        try { peer && peer.reconnect && peer.reconnect(); } catch (e) {}
       });
+      peer.on('error', (e) => {
+        if (e.type === 'unavailable-id') {
+          setSyncStatus('offline', 'Sync ID collision. Regenerate phrase.');
+        } else {
+          setSyncStatus('offline', 'Sync unavailable (offline?)');
+        }
+      });
+      return;
+    }
+    if (err.type === 'network' || err.type === 'server-error' ||
+        err.type === 'socket-error' || err.type === 'socket-closed') {
+      setSyncStatus('connecting', 'Reconnecting...');
       return;
     }
     setSyncStatus('offline', 'Sync unavailable (offline?)');
@@ -643,7 +722,9 @@ function handleIncomingConnection(conn) {
   conn.on('open', () => {
     peerConnections.push(conn);
     updatePeersList();
-
+    if (conn.metadata && conn.metadata.phrase) {
+      saveStoredPeer(conn.metadata.phrase);
+    }
     // Send our notes to the new peer
     conn.send({
       type: 'sync-full',
@@ -651,8 +732,9 @@ function handleIncomingConnection(conn) {
       sender: myPhrase,
       timestamp: Date.now(),
     });
+    flushPending(conn);
   });
-  conn.on('data', (data) => handleSyncData(data));
+  conn.on('data', (data) => handleSyncData(data, conn));
   conn.on('close', () => {
     peerConnections = peerConnections.filter(c => c !== conn);
     updatePeersList();
@@ -667,14 +749,24 @@ function handleIncomingConnection(conn) {
 }
 
 function connectToPeer(remotePhrase) {
-  if (!peer) return;
+  if (!peer || !remotePhrase) return;
   const remoteId = 'minotes-' + remotePhrase.replace(/[^a-z0-9-]/gi, '').toLowerCase();
-  const conn = peer.connect(remoteId, { reliable: true });
+  if (remoteId === 'minotes-' + (myPhrase || '').replace(/[^a-z0-9-]/gi, '').toLowerCase()) {
+    return; // don't connect to ourselves
+  }
+  const conn = peer.connect(remoteId, {
+    reliable: true,
+    metadata: { phrase: myPhrase }, // tell the other side who we are
+  });
 
   // Save for auto-reconnect after refresh
   saveStoredPeer(remotePhrase);
 
+  let opened = false;
+  let retried = false;
+
   conn.on('open', () => {
+    opened = true;
     peerConnections.push(conn);
     setSyncStatus('online', `Connected (${peerConnections.length} device${peerConnections.length > 1 ? 's' : ''})`);
     updatePeersList();
@@ -686,58 +778,125 @@ function connectToPeer(remotePhrase) {
       sender: myPhrase,
       timestamp: Date.now(),
     });
+    flushPending(conn);
   });
 
-  conn.on('data', (data) => handleSyncData(data));
+  conn.on('data', (data) => handleSyncData(data, conn));
   conn.on('close', () => {
     peerConnections = peerConnections.filter(c => c !== conn);
     updatePeersList();
     if (!peerConnections.length) setSyncStatus('online', 'Connected, ready for sync');
   });
-  conn.on('error', () => toast('Could not connect. Check the phrase'));
+  conn.on('error', () => {
+    // Single retry after a short delay (peer might still be registering)
+    if (!opened && !retried) {
+      retried = true;
+      setTimeout(() => {
+        if (!peer || peer.destroyed) return;
+        const retry = peer.connect(remoteId, {
+          reliable: true,
+          metadata: { phrase: myPhrase },
+        });
+        retry.on('open', () => {
+          peerConnections.push(retry);
+          updatePeersList();
+          retry.send({
+            type: 'sync-full',
+            notes: notes,
+            sender: myPhrase,
+            timestamp: Date.now(),
+          });
+          flushPending(retry);
+        });
+        retry.on('data', (data) => handleSyncData(data, retry));
+        retry.on('close', () => {
+          peerConnections = peerConnections.filter(c => c !== retry);
+          updatePeersList();
+          if (!peerConnections.length) setSyncStatus('online', 'Connected, ready for sync');
+        });
+        retry.on('error', () => {
+          toast('Could not connect. Check the phrase');
+          removeStoredPeer(remotePhrase);
+        });
+      }, 1500);
+      return;
+    }
+    toast('Could not connect. Check the phrase');
+    removeStoredPeer(remotePhrase);
+  });
 }
 
-function handleSyncData(data) {
+function handleSyncData(data, conn) {
   if (!data || !data.type) return;
   // Skip messages from self to prevent echo loops
   if (data.sender === myPhrase) return;
+
+  // Remember the sender so the receiver can auto-reconnect later.
+  if (data.sender) saveStoredPeer(data.sender);
 
   try {
     if (data.type === 'note-created' && data.note) {
       const n = data.note;
       if (!n.sync_id) return;
+      if (isTombstoned(n.sync_id)) return; // we deleted it after a refresh - keep it deleted
       if (notes.some(local => local.sync_id === n.sync_id)) return;
       createNote(n.title, n.content, /^#[0-9a-fA-F]{6}$/.test(n.color) ? n.color : '#ffffff', n.remind_at || null, n.done || 0, n.sync_id);
       toast('Note synced from peer');
     }
 
     else if (data.type === 'note-updated' && data.note) {
-      const local = notes.find(x => x.sync_id === data.sync_id);
-      if (!local) return;
       const n = data.note;
+      let local = notes.find(x => x.sync_id === data.sync_id);
+      if (!local) {
+        // Don't have it yet (e.g. note-created was missed). Create it
+        // from the payload so updates aren't lost.
+        if (!n.sync_id || isTombstoned(n.sync_id)) return;
+        createNote(n.title, n.content, /^#[0-9a-fA-F]{6}$/.test(n.color) ? n.color : '#ffffff', n.remind_at || null, n.done || 0, n.sync_id);
+        toast('Note synced from peer');
+        return;
+      }
+      // Last-write-wins: only overwrite if the remote change is newer
+      const remoteTs = n.updated_at ? new Date(n.updated_at).getTime() : Date.now();
+      const localTs = local.updated_at ? new Date(local.updated_at).getTime() : 0;
+      if (remoteTs < localTs) return;
       updateNote(local.id, { title: n.title, content: n.content, color: n.color, remind_at: n.remind_at, done: n.done });
     }
 
     else if (data.type === 'note-deleted') {
-      const local = notes.find(x => x.sync_id === data.sync_id);
+      const syncId = data.sync_id;
+      addTombstone(syncId); // remember so a late note-created can't resurrect it
+      const local = notes.find(x => x.sync_id === syncId);
       if (!local) return;
       deleteNote(local.id);
       toast('Peer deleted a note');
     }
 
     else if (data.type === 'note-toggled') {
-      const local = notes.find(x => x.sync_id === data.sync_id);
-      if (!local) return;
+      const n = data.note || {};
+      let local = notes.find(x => x.sync_id === data.sync_id);
+      if (!local) {
+        // Don't have the note yet - create it as already-toggled so the
+        // done state is preserved.
+        if (!data.sync_id || isTombstoned(data.sync_id)) return;
+        createNote(n.title || 'Untitled', n.content || '', /^#[0-9a-fA-F]{6}$/.test(n.color) ? n.color : '#ffffff', n.remind_at || null, data.done, data.sync_id);
+        return;
+      }
       updateNote(local.id, { done: data.done });
     }
 
     else if (data.type === 'sync-full' && data.notes) {
       for (const rn of data.notes) {
         if (!rn.sync_id) continue;
+        if (isTombstoned(rn.sync_id)) continue;
         const match = notes.find(n => n.sync_id === rn.sync_id);
         if (match) {
+          // Last-write-wins: only overwrite if remote is newer
+          const remoteTs = rn.updated_at ? new Date(rn.updated_at).getTime() : Date.now();
+          const localTs = match.updated_at ? new Date(match.updated_at).getTime() : 0;
+          if (remoteTs < localTs) continue;
           if (match.title !== rn.title || match.content !== rn.content ||
-              match.done !== rn.done || match.color !== rn.color) {
+              match.done !== rn.done || match.color !== rn.color ||
+              match.remind_at !== rn.remind_at) {
             updateNote(match.id, {
               title: rn.title, content: rn.content,
               color: /^#[0-9a-fA-F]{6}$/.test(rn.color) ? rn.color : '#ffffff',
@@ -1094,8 +1253,21 @@ function toggleDone(id) {
   if (!note) return;
   const newDone = note.done ? 0 : 1;
   updateNote(id, { done: newDone });
+  const fresh = notes.find(n => n.id === id);
   toast(newDone ? 'Marked as done' : 'Reopened');
-  syncSend('note-toggled', { sync_id: note.sync_id || '', done: newDone });
+  syncSend('note-toggled', {
+    sync_id: note.sync_id || fresh?.sync_id || '',
+    done: newDone,
+    note: {
+      sync_id: note.sync_id || fresh?.sync_id || '',
+      title: note.title,
+      content: note.content,
+      color: note.color,
+      remind_at: note.remind_at,
+      done: newDone,
+      updated_at: fresh?.updated_at || new Date().toISOString(),
+    },
+  });
 }
 
 // ─── Service Worker ───────────────────────────────────────────────────
