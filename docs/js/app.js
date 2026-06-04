@@ -1,5 +1,5 @@
 /* =====================================================================
-   minotes — Static (localStorage) App for GitHub Pages
+   minotes - Static (localStorage) App for GitHub Pages
    ===================================================================== */
 
 // ─── State ────────────────────────────────────────────────────────────
@@ -93,7 +93,7 @@ function saveNotesToStorage() {
     localStorage.setItem('minotes_notes', JSON.stringify(notes));
   } catch (e) {
     if (e.name === 'QuotaExceededError') {
-      toast('⚠️ Storage full! Export and clear old notes.');
+      toast('Storage full. Export and clear old notes.');
       console.error('[STORAGE] localStorage full:', e);
     } else {
       throw e;
@@ -226,12 +226,12 @@ function renderNotes() {
           ${formatDT(n.remind_at)}
         </span>`
       : '';
-    const doneBadge = isDone ? '<span class="note-card-done-badge">✓ Done</span>' : '';
+    const doneBadge = isDone ? '<span class="note-card-done-badge">Done</span>' : '';
 
     return `<div class="note-card ${doneClass}" data-id="${n.id}" ${bg}>
       <div class="note-card-header">
         <h3>${escapeHtml(n.title || 'Untitled')}</h3>
-        ${n.pinned ? '<span class="note-card-pinned">📌</span>' : ''}
+        ${n.pinned ? '<span class="note-card-pinned"></span>' : ''}
       </div>
       <div class="note-card-content">${escapeHtml(contentPreview)}</div>
       <div class="note-card-footer">
@@ -315,7 +315,7 @@ function saveNote() {
   if (editingId) {
     const note = notes.find(n => n.id === editingId);
     updateNote(editingId, { title, content, color, remind_at: remindAtVal, done });
-    toast('Note updated ✨');
+    toast('Note updated');
     closeModalFn();
     syncSend('note-updated', {
       sync_id: note?.sync_id || '',
@@ -323,7 +323,7 @@ function saveNote() {
     });
   } else {
     const note = createNote(title, content, color, remindAtVal, done);
-    toast('Note created ✨');
+    toast('Note created');
     closeModalFn();
     syncSend('note-created', {
       note: {
@@ -535,7 +535,7 @@ function updatePeersList() {
         conn.close();
         peerConnections.splice(idx, 1);
         updatePeersList();
-        if (!peerConnections.length) setSyncStatus('online', 'Connected — ready for sync');
+        if (!peerConnections.length) setSyncStatus('online', 'Connected, ready for sync');
       }
     });
   });
@@ -562,7 +562,7 @@ function forgetAllPeers() {
   peerConnections.forEach(c => c.close());
   peerConnections = [];
   updatePeersList();
-  setSyncStatus('online', 'Connected — ready for sync');
+  setSyncStatus('online', 'Connected, ready for sync');
   toast('Forgot all peers');
 }
 
@@ -581,7 +581,7 @@ async function initPeer() {
   peer = new Peer(peerId, { debug: 0 });
 
   peer.on('open', () => {
-    setSyncStatus('online', 'Connected — ready for sync');
+    setSyncStatus('online', 'Connected, ready for sync');
     // Auto-reconnect to previously connected peers
     const stored = getStoredPeers();
     if (stored.length) {
@@ -609,13 +609,13 @@ async function initPeer() {
     conn.on('close', () => {
       peerConnections = peerConnections.filter(c => c !== conn);
       updatePeersList();
-      if (!peerConnections.length) setSyncStatus('online', 'Connected — ready for sync');
+      if (!peerConnections.length) setSyncStatus('online', 'Connected, ready for sync');
     });
     conn.on('error', (err) => {
       console.warn('[SYNC] Connection error:', err);
       peerConnections = peerConnections.filter(c => c !== conn);
       updatePeersList();
-      if (!peerConnections.length) setSyncStatus('online', 'Connected — ready for sync');
+      if (!peerConnections.length) setSyncStatus('online', 'Connected, ready for sync');
     });
   });
 
@@ -623,12 +623,12 @@ async function initPeer() {
     if (err.type === 'unavailable-id') {
       peer.destroy();
       peer = null;
-      // Retry with random suffix — all handlers will be re-attached
+      // Retry with random suffix - all handlers will be re-attached
       const suffix = Math.random().toString(36).slice(2, 6);
       const newId = peerId + '-' + suffix;
       console.log('[SYNC] Peer ID collision, retrying with:', newId);
       peer = new Peer(newId, { debug: 0 });
-      peer.on('open', () => setSyncStatus('online', 'Connected — ready for sync'));
+      peer.on('open', () => setSyncStatus('online', 'Connected, ready for sync'));
       peer.on('connection', handleIncomingConnection);
       peer.on('error', (e) => {
         setSyncStatus('offline', 'Sync unavailable (offline?)');
@@ -656,13 +656,13 @@ function handleIncomingConnection(conn) {
   conn.on('close', () => {
     peerConnections = peerConnections.filter(c => c !== conn);
     updatePeersList();
-    if (!peerConnections.length) setSyncStatus('online', 'Connected — ready for sync');
+    if (!peerConnections.length) setSyncStatus('online', 'Connected, ready for sync');
   });
   conn.on('error', (err) => {
     console.warn('[SYNC] Connection error:', err);
     peerConnections = peerConnections.filter(c => c !== conn);
     updatePeersList();
-    if (!peerConnections.length) setSyncStatus('online', 'Connected — ready for sync');
+    if (!peerConnections.length) setSyncStatus('online', 'Connected, ready for sync');
   });
 }
 
@@ -692,9 +692,9 @@ function connectToPeer(remotePhrase) {
   conn.on('close', () => {
     peerConnections = peerConnections.filter(c => c !== conn);
     updatePeersList();
-    if (!peerConnections.length) setSyncStatus('online', 'Connected — ready for sync');
+    if (!peerConnections.length) setSyncStatus('online', 'Connected, ready for sync');
   });
-  conn.on('error', () => toast('Could not connect — check the phrase'));
+  conn.on('error', () => toast('Could not connect. Check the phrase'));
 }
 
 function handleSyncData(data) {
@@ -708,7 +708,7 @@ function handleSyncData(data) {
       if (!n.sync_id) return;
       if (notes.some(local => local.sync_id === n.sync_id)) return;
       createNote(n.title, n.content, /^#[0-9a-fA-F]{6}$/.test(n.color) ? n.color : '#ffffff', n.remind_at || null, n.done || 0, n.sync_id);
-      toast('📥 Note synced from peer');
+      toast('Note synced from peer');
     }
 
     else if (data.type === 'note-updated' && data.note) {
@@ -722,7 +722,7 @@ function handleSyncData(data) {
       const local = notes.find(x => x.sync_id === data.sync_id);
       if (!local) return;
       deleteNote(local.id);
-      toast('📥 Peer deleted a note');
+      toast('Peer deleted a note');
     }
 
     else if (data.type === 'note-toggled') {
@@ -748,7 +748,7 @@ function handleSyncData(data) {
           createNote(rn.title, rn.content, /^#[0-9a-fA-F]{6}$/.test(rn.color) ? rn.color : '#ffffff', rn.remind_at || null, rn.done || 0, rn.sync_id);
         }
       }
-      toast('📥 Full sync from peer');
+      toast('Full sync from peer');
     }
   } catch (e) {
     console.warn('[SYNC] Error handling peer data:', e);
@@ -845,7 +845,7 @@ function onScanSuccess(decodedText) {
   if (!phrase) return;
   // Validate phrase format (should match word-word-####)
   if (!/^[a-z]+-[a-z]+-\d{4}$/.test(phrase)) {
-    toast('Invalid sync phrase — scan a valid minotes QR code');
+    toast('Invalid sync phrase. Scan a valid minotes QR code');
     stopScanner();
     return;
   }
@@ -919,7 +919,7 @@ exportNotesBtn.addEventListener('click', () => {
   a.download = `minotes-${new Date().toISOString().slice(0, 10)}.json`;
   a.click();
   URL.revokeObjectURL(url);
-  toast('Notes exported 📦');
+  toast('Notes exported');
 });
 
 importNotesBtn.addEventListener('click', () => {
@@ -945,9 +945,9 @@ importNotesBtn.addEventListener('click', () => {
         }
         saveNotesToStorage();
         loadNotes();
-        toast(`Imported ${imported.length} notes 📥`);
+        toast(`Imported ${imported.length} notes`);
       } catch (err) {
-        toast('Failed to import — invalid file');
+        toast('Failed to import. Invalid file');
       }
     };
     reader.readAsText(file);
@@ -990,7 +990,7 @@ const DEMO_NOTES = [
   { title: 'Database migration', content: 'Moving from SQLite to PostgreSQL. Migration script ready for review.', color: '#fef3c7', done: 0 },
   { title: 'Bug: Login redirect', content: 'After OAuth login, users are redirected to /404 instead of /dashboard. Need to fix the callback handler.', color: '#fce7f3', done: 0, pinned: 1 },
   { title: 'Sprint Review', content: 'Team: 8/10 stories completed\nVelocity: 42 points\nBlockers: None\nNext: Retrospective Friday', color: '#fef3c7', done: 0 },
-  { title: 'Unit tests for auth', content: 'Coverage at 92% — all critical paths tested', color: '#dcfce7', done: 1 },
+  { title: 'Unit tests for auth', content: 'Coverage at 92%. All critical paths tested', color: '#dcfce7', done: 1 },
   { title: 'Dark mode support', content: 'Implemented CSS custom properties, toggle in settings', color: '#dcfce7', done: 1 },
   { title: 'Deployment v2.1', content: 'Target: Next Tuesday\nIncludes: Bug fixes + performance improvements\nRollback plan: Tagged in CI', color: '#f5f5f4', done: 0 },
 ];
@@ -1126,7 +1126,7 @@ const Notif = {
     if (!('Notification' in window)) return 'unsupported';
     if (Notification.permission !== 'default') return Notification.permission;
     const result = await Notification.requestPermission();
-    if (result === 'granted') toast('Notifications enabled ✅');
+    if (result === 'granted') toast('Notifications enabled');
     return result;
   },
 
@@ -1172,14 +1172,14 @@ const Notif = {
   /** Test notification. Requests permission if needed. */
   async test() {
     if (this.permission === 'unsupported') { toast('Notifications not supported'); return; }
-    if (this.permission === 'denied') { toast('Notifications are blocked — enable in browser settings'); return; }
+    if (this.permission === 'denied') { toast('Notifications are blocked. Enable in browser settings'); return; }
     if (this.permission === 'default') {
       const result = await this.request();
       if (result !== 'granted') { toast('Permission denied'); return; }
     }
-    toast('🔔 Test notification incoming…');
+    toast('Test notification incoming...');
     await this.send(
-      'minotes — Test',
+      'minotes - Test',
       'This is a test notification from minotes',
       'test-' + Date.now()
     );
@@ -1193,13 +1193,13 @@ const Notif = {
   },
 };
 
-// Notification prompt — Enable/Later
+// Notification prompt - Enable/Later
 notifEnableBtn.addEventListener('click', async () => {
   notifPrompt.classList.remove('visible');
   const result = await Notif.request();
   if (result === 'granted') {
     localStorage.removeItem('minotes_notif_dismissed');
-    Notif.send('minotes', 'Notifications are enabled! 🔔');
+    Notif.send('minotes', 'Notifications are enabled!');
   } else {
     localStorage.setItem('minotes_notif_dismissed', 'true');
   }

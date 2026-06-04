@@ -1,35 +1,35 @@
-# minotes ✏️ 🔐
+# minotes
 
-**Minimal, private, P2P-synced notes app — free and open source.**
+**Minimal, private, P2P-synced notes app. Free and open source.**
 
-minotes is a beautifully minimal notes app that syncs directly between your devices via **peer-to-peer WebRTC** — no cloud accounts, no servers, no tracking. Just you and your notes.
+A small notes app that syncs directly between your devices over peer-to-peer WebRTC. No cloud accounts, no servers, no tracking. Just you and your notes.
 
-> 🌐 **Live demo:** [levi-smokrovic.github.io/minotes](https://levi-smokrovic.github.io/minotes/)
-
----
-
-## ✨ Features
-
-- **🧠 Beautiful & Minimal** — Clean, distraction-free interface with smooth animations
-- **🔒 P2P Sync** — End-to-end sync via WebRTC (PeerJS). Your notes never touch a server
-- **📱 PWA Ready** — Install as a standalone app on mobile & desktop
-- **🔔 Reminders** — Set per-note reminders with push notifications
-- **🎨 Color Labels** — Categorize notes with color coding
-- **✅ Done Tracking** — Mark notes as done (double-click any note!)
-- **📋 Filters** — Quickly switch between All / Active / Done
-- **📦 Export & Import** — Full JSON backup and restore
-- **🌙 Dark Mode** — System-style theme toggle (persisted)
-- **📎 No Account Needed** — No signup, no login, no data collection
-- **🔗 QR Code Sharing** — Share your sync phrase as a QR code
-- **🌐 Works Offline** — Service worker caches everything for offline use
+Live demo: [levi-smokrovic.github.io/minotes](https://levi-smokrovic.github.io/minotes/)
 
 ---
 
-## 🚀 Quick Start
+## Features
+
+- **Beautiful and minimal.** Clean interface, smooth animations, no clutter.
+- **P2P sync.** End-to-end sync via WebRTC (PeerJS). Your notes never touch a server.
+- **PWA ready.** Install as a standalone app on mobile and desktop.
+- **Reminders.** Set per-note reminders with push notifications.
+- **Color labels.** Categorize notes with color coding.
+- **Done tracking.** Mark notes as done (double-click any note).
+- **Filters.** Quickly switch between All, Active, and Done.
+- **Export and import.** Full JSON backup and restore.
+- **Dark mode.** System-style theme toggle, persisted across sessions.
+- **No account needed.** No signup, no login, no data collection.
+- **QR code sharing.** Share your sync phrase as a QR code.
+- **Works offline.** Service worker caches everything for offline use.
+
+---
+
+## Quick Start
 
 ### Option 1: Use the web app (no install)
 
-Visit **[levi-smokrovic.github.io/minotes](https://levi-smokrovic.github.io/minotes/)** in any browser. That's it.
+Visit [levi-smokrovic.github.io/minotes](https://levi-smokrovic.github.io/minotes/) in any browser. That's it.
 
 ### Option 2: Run locally (Flask backend)
 
@@ -58,23 +58,23 @@ Open `http://localhost:8080` in your browser.
 
 ---
 
-## 🔐 P2P Sync — How It Works
+## P2P Sync: How It Works
 
 1. Open minotes on two devices.
 2. Tap the **Sync** icon in the header.
-3. You'll see a **sync phrase** like `fast-dove-6410`.
+3. You'll see a sync phrase like `fast-dove-6410`.
 4. On your other device, enter the same phrase and tap **Connect**.
-5. Notes sync in real-time via direct WebRTC connection. No data passes through any server.
+5. Notes sync in real-time over a direct WebRTC connection. No data passes through any server.
 
-You can also share your phrase as a **QR code** for easy scanning.
+You can also share your phrase as a QR code for easy scanning.
 
-> **Privacy guarantee:** minotes uses PeerJS for WebRTC. The PeerJS cloud server is only used for peer discovery (your devices find each other). After discovery, all data flows directly between your devices over an encrypted peer-to-peer connection.
+> **Privacy note:** minotes uses PeerJS for WebRTC. The PeerJS cloud server is only used for peer discovery so your devices can find each other. After discovery, all data flows directly between your devices over an encrypted peer-to-peer connection.
 
 ---
 
-## ⚙️ Hidden Admin Panel
+## Hidden Admin Panel
 
-Click the **"minotes" logo 5 times quickly** to unlock the admin panel, where you can:
+Click the **minotes logo 5 times quickly** to unlock the admin panel, where you can:
 
 - Load sample notes for a quick demo
 - Load a project management demo board
@@ -82,21 +82,21 @@ Click the **"minotes" logo 5 times quickly** to unlock the admin panel, where yo
 
 ---
 
-## 🧑‍💻 Tech Stack
+## Tech Stack
 
 | Component | Technology |
 |-----------|-----------|
 | Frontend  | Vanilla JS, CSS Custom Properties, PWA |
 | Backend   | Python Flask (optional, for server mode) |
-| Database  | SQLite (Flask mode) / localStorage (static mode) |
-| P2P Sync  | PeerJS (WebRTC) |
-| QR Codes  | QRCode.js |
+| Database  | SQLite (Flask mode), localStorage (static mode) |
+| P2P sync  | PeerJS (WebRTC) |
+| QR codes  | QRCode.js |
 | Font      | Inter (Google Fonts) |
 | Hosting   | GitHub Pages |
 
 ---
 
-## 📁 Project Structure
+## Project Structure
 
 ```
 minotes/
@@ -122,24 +122,24 @@ minotes/
 
 ---
 
-## 🤝 Contributing
+## Contributing
 
 This is a passion project. Feel free to fork, open issues, or submit PRs.
 
 Ideas welcome:
-- Rich text editing?
-- Tags / categories?
-- Collaborative real-time editing?
-- End-to-end encryption with libsodium?
+- Rich text editing
+- Tags and categories
+- Collaborative real-time editing
+- End-to-end encryption with libsodium
 
 ---
 
-## 📄 License
+## License
 
-MIT — do whatever you want.
+MIT. Do whatever you want.
 
 ---
 
 <p align="center">
-  <sub>built with ✨ by <a href="https://github.com/Levi-Smokrovic">@Levi-Smokrovic</a></sub>
+  <sub>built by <a href="https://github.com/Levi-Smokrovic">@Levi-Smokrovic</a></sub>
 </p>

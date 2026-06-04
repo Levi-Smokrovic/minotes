@@ -1,5 +1,5 @@
 /* ====================================================================
-   minotes — Service Worker (notifications only, no caching)
+   minotes - Service Worker (notifications only, no caching)
    ==================================================================== */
 self.addEventListener('install', () => self.skipWaiting());
 self.addEventListener('activate', (e) => e.waitUntil(clients.claim()));

@@ -1,5 +1,5 @@
 /* =====================================================================
-   minotes — Minimalist Notes App
+   minotes - Minimalist Notes App
    ===================================================================== */
 
 /* --- Reset & Base --- */
@@ -92,7 +92,7 @@ body {
 .btn-ghost {
   background: transparent;
   color: var(--text-muted);
-  border: 1px solid var(--border);
+  border: none;
 }
 .btn-ghost:hover {
   background: var(--border);
@@ -419,7 +419,7 @@ body {
   font-family: var(--font);
   font-size: 12px;
   padding: 4px 8px;
-  border: 1px solid var(--border);
+  border: none;
   border-radius: 8px;
   background: var(--bg);
   color: var(--text);
@@ -489,7 +489,7 @@ body {
   font-weight: 500;
   padding: 4px 10px;
   border-radius: 8px;
-  border: 1px solid var(--border);
+  border: none;
   background: var(--bg);
   color: var(--text-muted);
   cursor: pointer;
@@ -515,7 +515,7 @@ body {
   font-family: var(--font);
   font-size: 11px;
   padding: 4px 8px;
-  border: 1px solid var(--border);
+  border: none;
   border-radius: 8px;
   background: var(--bg);
   color: var(--text);
@@ -766,7 +766,7 @@ body {
 }
 
 /* =====================================================================
-   Enhanced Design — DateTime, QR, Notifications
+   Enhanced Design - DateTime, QR, Notifications
    ===================================================================== */
 
 /* --- Custom datetime-local picker --- */
@@ -774,7 +774,7 @@ input[type="datetime-local"] {
   font-family: var(--font);
   font-size: 11px;
   padding: 4px 8px;
-  border: 1px solid var(--border);
+  border: none;
   border-radius: 8px;
   background: var(--bg);
   color: var(--text);
@@ -787,8 +787,8 @@ input[type="datetime-local"] {
 }
 
 input[type="datetime-local"]:focus {
-  border-color: var(--accent);
-  box-shadow: 0 0 0 2px rgba(43,43,43,.1);
+  border-color: var(--border);
+  box-shadow: none;
 }
 
 input[type="datetime-local"]::-webkit-calendar-picker-indicator {
@@ -1014,7 +1014,7 @@ input[type="datetime-local"]::-webkit-datetime-edit-minute-field:focus {
   opacity: .6;
 }
 
-/* Dark overlay on custom bg colors in dark mode — keeps the hue, readable text */
+/* Dark overlay on custom bg colors in dark mode - keeps the hue, readable text */
 [data-theme="dark"] .note-card[style*="background"],
 [data-theme="dark"] .modal-content[style*="background"] {
   position: relative;
@@ -1154,8 +1154,7 @@ input[type="datetime-local"]::-webkit-datetime-edit-minute-field:focus {
 [data-theme="dark"] button:focus-visible,
 [data-theme="dark"] input:focus-visible,
 [data-theme="dark"] textarea:focus-visible {
-  outline: 2px solid #888;
-  outline-offset: 2px;
+  outline: none;
 }
 
 [data-theme="dark"] .settings-panel .settings-item {
@@ -1198,8 +1197,7 @@ input[type="datetime-local"]::-webkit-datetime-edit-minute-field:focus {
 [data-theme="dark"] button:focus-visible,
 [data-theme="dark"] input:focus-visible,
 [data-theme="dark"] textarea:focus-visible {
-  outline: 2px solid #888;
-  outline-offset: 2px;
+  outline: none;
 }
 
 [data-theme="dark"] .preset-btn.active,

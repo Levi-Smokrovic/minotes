@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Minimalistic Notes App — Flask Backend"""
+"""Minimalistic Notes App - Flask Backend"""
 
 import json
 import sqlite3
@@ -87,14 +87,14 @@ def send_email_reminder(to_addr, title, content):
         return False
     try:
         msg = EmailMessage()
-        msg["Subject"] = f"Reminder: {_sanitize_header(title)} — minotes"
+        msg["Subject"] = f"Reminder: {_sanitize_header(title)} - minotes"
         msg["From"] = SMTP_FROM
         msg["To"] = to_addr
         body = f"Reminder from minotes\n\n"
         body += f"Title: {_sanitize_header(title)}\n"
         if content:
             body += f"Note: {content[:500]}\n"
-        body += f"\n— minotes"
+        body += f"\n- minotes"
         msg.set_content(body)
 
         with smtplib.SMTP(SMTP_HOST, SMTP_PORT) as srv:
@@ -163,7 +163,7 @@ def set_email_config(email_addr):
         json.dump({"email": email_addr.strip()}, f)
 
 # ---------------------------------------------------------------------------
-# Routes — API
+# Routes - API
 # ---------------------------------------------------------------------------
 @app.route("/")
 def index():

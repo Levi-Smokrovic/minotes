@@ -1,5 +1,5 @@
 /* =====================================================================
-   minotes — Frontend App
+   minotes - Frontend App
    ===================================================================== */
 
 // ─── State ────────────────────────────────────────────────────────────
@@ -179,7 +179,7 @@ function renderNotes() {
     return `<div class="note-card ${doneClass}" data-id="${n.id}" ${bg}>
       <div class="note-card-header">
         <h3>${escapeHtml(n.title || 'Untitled')}</h3>
-        ${n.pinned ? '<span class="note-card-pinned">📌</span>' : ''}
+        ${n.pinned ? '<span class="note-card-pinned"></span>' : ''}
       </div>
       <div class="note-card-content">${escapeHtml(contentPreview)}</div>
       <div class="note-card-footer">
@@ -274,7 +274,7 @@ async function saveNote() {
     await api('PUT', `/api/notes/${editingId}`, {
       title, content, color, remind_at: remindAtVal, done,
     });
-    toast('Note updated ✨');
+    toast('Note updated');
     closeModalFn();
     await loadNotes();
     syncSend('note-updated', {
@@ -287,7 +287,7 @@ async function saveNote() {
       title, content, color, remind_at: remindAtVal, done, sync_id,
     });
     editingId = res.id;
-    toast('Note created ✨');
+    toast('Note created');
     closeModalFn();
     await loadNotes();
     syncSend('note-created', {
@@ -386,7 +386,7 @@ async function loadEmailConfig() {
     }
     if (emailReminderGroup) emailReminderGroup.style.display = '';
     if (emailReminderInput) emailReminderInput.value = data.email || '';
-    if (emailStatus) emailStatus.textContent = data.email ? '✓ Email reminders active' : '';
+    if (emailStatus) emailStatus.textContent = data.email ? 'Email reminders active' : '';
   } catch (_) {
     if (emailReminderGroup) emailReminderGroup.style.display = 'none';
   }
@@ -401,8 +401,8 @@ async function saveEmailConfig() {
   try {
     const data = await api('PUT', '/api/email/config', { email });
     if (data.ok) {
-      toast(email ? 'Email saved ✓' : 'Email removed.');
-      if (emailStatus) emailStatus.textContent = email ? '✓ Email reminders active' : '';
+      toast(email ? 'Email saved.' : 'Email removed.');
+      if (emailStatus) emailStatus.textContent = email ? 'Email reminders active' : '';
     }
   } catch (_) {
     toast('Failed to save email config.');
@@ -532,7 +532,7 @@ function updatePeersList() {
         conn.close();
         peerConnections.splice(idx, 1);
         updatePeersList();
-        if (!peerConnections.length) setSyncStatus('online', 'Connected — ready for sync');
+        if (!peerConnections.length) setSyncStatus('online', 'Connected, ready for sync');
       }
     });
   });
@@ -559,7 +559,7 @@ function forgetAllPeers() {
   peerConnections.forEach(c => c.close());
   peerConnections = [];
   updatePeersList();
-  setSyncStatus('online', 'Connected — ready for sync');
+  setSyncStatus('online', 'Connected, ready for sync');
 }
 
 // ─── PeerJS Sync ──────────────────────────────────────────────────────
@@ -577,7 +577,7 @@ async function initPeer() {
   peer = new Peer(peerId, { debug: 0 });
 
   peer.on('open', (id) => {
-    setSyncStatus('online', 'Connected — ready for sync');
+    setSyncStatus('online', 'Connected, ready for sync');
     // Auto-reconnect to previously connected peers
     const stored = getStoredPeers();
     if (stored.length) {
@@ -609,13 +609,13 @@ async function initPeer() {
     conn.on('close', () => {
       peerConnections = peerConnections.filter(c => c !== conn);
       updatePeersList();
-      if (!peerConnections.length) setSyncStatus('online', 'Connected — ready for sync');
+      if (!peerConnections.length) setSyncStatus('online', 'Connected, ready for sync');
     });
     conn.on('error', (err) => {
       console.warn('[SYNC] Connection error:', err);
       peerConnections = peerConnections.filter(c => c !== conn);
       updatePeersList();
-      if (!peerConnections.length) setSyncStatus('online', 'Connected — ready for sync');
+      if (!peerConnections.length) setSyncStatus('online', 'Connected, ready for sync');
     });
   });
 
@@ -623,12 +623,12 @@ async function initPeer() {
     if (err.type === 'unavailable-id') {
       peer.destroy();
       peer = null;
-      // Retry with random suffix — all handlers will be re-attached
+      // Retry with random suffix - all handlers will be re-attached
       const suffix = Math.random().toString(36).slice(2, 6);
       const newId = peerId + '-' + suffix;
       console.log('[SYNC] Peer ID collision, retrying with:', newId);
       peer = new Peer(newId, { debug: 0 });
-      peer.on('open', () => setSyncStatus('online', 'Connected — ready for sync'));
+      peer.on('open', () => setSyncStatus('online', 'Connected, ready for sync'));
       peer.on('connection', handleIncomingConnection);
       peer.on('error', (e) => {
         setSyncStatus('offline', 'Sync unavailable (offline?)');
@@ -658,13 +658,13 @@ function handleIncomingConnection(conn) {
   conn.on('close', () => {
     peerConnections = peerConnections.filter(c => c !== conn);
     updatePeersList();
-    if (!peerConnections.length) setSyncStatus('online', 'Connected — ready for sync');
+    if (!peerConnections.length) setSyncStatus('online', 'Connected, ready for sync');
   });
   conn.on('error', (err) => {
     console.warn('[SYNC] Connection error:', err);
     peerConnections = peerConnections.filter(c => c !== conn);
     updatePeersList();
-    if (!peerConnections.length) setSyncStatus('online', 'Connected — ready for sync');
+    if (!peerConnections.length) setSyncStatus('online', 'Connected, ready for sync');
   });
 }
 
@@ -697,11 +697,11 @@ function connectToPeer(remotePhrase) {
   conn.on('close', () => {
     peerConnections = peerConnections.filter(c => c !== conn);
     updatePeersList();
-    if (!peerConnections.length) setSyncStatus('online', 'Connected — ready for sync');
+    if (!peerConnections.length) setSyncStatus('online', 'Connected, ready for sync');
   });
 
   conn.on('error', () => {
-    toast('Could not connect — check the phrase');
+    toast('Could not connect. Check the phrase');
   });
 }
 
@@ -724,7 +724,7 @@ async function handleSyncData(data, conn) {
         done: n.done || 0,
         sync_id: n.sync_id,
       });
-      toast('📥 Note synced from peer');
+      toast('Note synced from peer');
       await loadNotes();
     }
 
@@ -744,7 +744,7 @@ async function handleSyncData(data, conn) {
       const local = notes.find(x => x.sync_id === data.sync_id);
       if (!local) return;
       await api('DELETE', `/api/notes/${local.id}`);
-      toast('📥 Peer deleted a note');
+      toast('Peer deleted a note');
       await loadNotes();
     }
 
@@ -785,7 +785,7 @@ async function handleSyncData(data, conn) {
           });
         }
       }
-      toast('📥 Full sync from peer');
+      toast('Full sync from peer');
       await loadNotes();
     }
   } catch (e) {
@@ -828,7 +828,7 @@ regeneratePhraseBtn.addEventListener('click', () => {
   myPhraseInput.value = myPhrase;
   updateQR(myPhrase);
   initPeer();
-  toast('New phrase generated — other devices will need this');
+  toast('New phrase generated. Other devices will need this');
 });
 
 connectBtn.addEventListener('click', () => {
@@ -897,7 +897,7 @@ function onScanSuccess(decodedText) {
   if (!phrase) return;
   // Validate phrase format (should match word-word-####)
   if (!/^[a-z]+-[a-z]+-\d{4}$/.test(phrase)) {
-    toast('Invalid sync phrase — scan a valid minotes QR code');
+    toast('Invalid sync phrase. Scan a valid minotes QR code');
     stopScanner();
     return;
   }
@@ -952,7 +952,7 @@ const Notif = {
     if (!('Notification' in window)) return 'unsupported';
     if (Notification.permission !== 'default') return Notification.permission;
     const result = await Notification.requestPermission();
-    if (result === 'granted') toast('Notifications enabled ✅');
+    if (result === 'granted') toast('Notifications enabled');
     return result;
   },
 
@@ -998,14 +998,14 @@ const Notif = {
   /** Test notification. Requests permission if needed. */
   async test() {
     if (this.permission === 'unsupported') { toast('Notifications not supported'); return; }
-    if (this.permission === 'denied') { toast('Notifications are blocked — enable in browser settings'); return; }
+    if (this.permission === 'denied') { toast('Notifications are blocked. Enable in browser settings'); return; }
     if (this.permission === 'default') {
       const result = await this.request();
       if (result !== 'granted') { toast('Permission denied'); return; }
     }
-    toast('🔔 Test notification incoming…');
+    toast('Test notification incoming...');
     await this.send(
-      'minotes — Test',
+      'minotes - Test',
       'This is a test notification from minotes',
       'test-' + Date.now()
     );
@@ -1019,13 +1019,13 @@ const Notif = {
   },
 };
 
-// Notification prompt — Enable/Later
+// Notification prompt - Enable/Later
 notifEnableBtn.addEventListener('click', async () => {
   notifPrompt.classList.remove('visible');
   const result = await Notif.request();
   if (result === 'granted') {
     localStorage.removeItem('minotes_notif_dismissed');
-    Notif.send('minotes', 'Notifications are enabled! 🔔');
+    Notif.send('minotes', 'Notifications are enabled!');
   } else {
     localStorage.setItem('minotes_notif_dismissed', 'true');
   }
@@ -1081,7 +1081,7 @@ exportNotesBtn.addEventListener('click', () => {
   a.download = `minotes-${new Date().toISOString().slice(0, 10)}.json`;
   a.click();
   URL.revokeObjectURL(url);
-  toast('Notes exported 📦');
+  toast('Notes exported');
 });
 
 importNotesBtn.addEventListener('click', () => {
@@ -1106,9 +1106,9 @@ importNotesBtn.addEventListener('click', () => {
           });
         }
         await loadNotes();
-        toast(`Imported ${imported.length} notes 📥`);
+        toast(`Imported ${imported.length} notes`);
       } catch (err) {
-        toast('Failed to import — invalid file');
+        toast('Failed to import. Invalid file');
       }
     };
     reader.readAsText(file);
@@ -1145,7 +1145,7 @@ const DEMO_NOTES = [
   { title: 'Database migration', content: 'Moving from SQLite to PostgreSQL. Migration script ready for review.', color: '#fef3c7', done: 0 },
   { title: 'Bug: Login redirect', content: 'After OAuth login, users are redirected to /404 instead of /dashboard.', color: '#fce7f3', done: 0, pinned: 1 },
   { title: 'Sprint Review', content: 'Team: 8/10 stories completed\nVelocity: 42 points\nBlockers: None', color: '#fef3c7', done: 0 },
-  { title: 'Unit tests for auth', content: 'Coverage at 92% — all critical paths tested', color: '#dcfce7', done: 1 },
+  { title: 'Unit tests for auth', content: 'Coverage at 92%. All critical paths tested', color: '#dcfce7', done: 1 },
   { title: 'Dark mode support', content: 'Implemented CSS custom properties, toggle in settings', color: '#dcfce7', done: 1 },
   { title: 'Deployment v2.1', content: 'Target: Next Tuesday\nIncludes: Bug fixes + performance', color: '#f5f5f4', done: 0 },
 ];
@@ -1325,7 +1325,7 @@ async function init() {
     if (!document.hidden) pollReminders();
   });
 
-  // Periodic sync — broadcast notes every 30s when connected
+  // Periodic sync - broadcast notes every 30s when connected
   setInterval(() => {
     if (peerConnections.length) broadcastSync();
   }, 30000);
