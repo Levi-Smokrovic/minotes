@@ -40,7 +40,6 @@ body {
   background: rgba(250,249,246,.85);
   backdrop-filter: blur(12px);
   -webkit-backdrop-filter: blur(12px);
-  border-bottom: 1px solid var(--border);
 }
 
 .header-inner {
@@ -406,7 +405,6 @@ body {
   align-items: center;
   justify-content: space-between;
   padding: 12px 20px 16px;
-  border-top: 1px solid var(--border);
   flex-wrap: wrap;
   gap: 8px;
 }
@@ -1204,11 +1202,6 @@ input[type="datetime-local"]::-webkit-datetime-edit-minute-field:focus {
   outline-offset: 2px;
 }
 
-[data-theme="dark"] .settings-panel .settings-item {
-  border-color: #333
-  border-color: var(--accent);
-}
-
 [data-theme="dark"] .preset-btn.active,
 [data-theme="dark"] .preset-btn:hover {
   background: var(--accent);
@@ -1270,10 +1263,6 @@ input[type="datetime-local"]::-webkit-datetime-edit-minute-field:focus {
   align-items: center;
   justify-content: space-between;
   padding: 12px 0;
-  border-bottom: 1px solid var(--border);
-}
-.settings-item:last-child {
-  border-bottom: none;
 }
 .settings-item-label {
   font-size: 14px;
